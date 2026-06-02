@@ -15,6 +15,7 @@ PubSubClient client(espClient);
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
   client.setServer(MQTT_SERVER, MQTT_PORT);
   client.setCallback([](char* topic, byte* payload, unsigned int length) {
     Serial.print("Message arrived [");
@@ -25,17 +26,21 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
   if (!client.connected()) reconnect();
   client.loop();
 
-  // Публикуване на данни на всеки 5 секунди
-  static unsigned long lastMsg = 0;
-  if (millis() - lastMsg > 5000) {
-    lastMsg = millis();
-    const char* msg = "hello";
-    client.publish("esp32/temperature", msg);
+  if (Serial2.available()) {
+    String data = Serial2.readStringUntil('\n');
+    Serial.println("Received from Serial2: " + data);
+    client.publish("esp32/serial", data.c_str());
   }
+
+  // static unsigned long lastMsg = 0;
+  // if (millis() - lastMsg > 5000) {
+  //   lastMsg = millis();
+  //   const char* msg = "hello";
+  //   client.publish("esp32/temperature", msg);
+  // }
 }
 
 // put function definitions here:

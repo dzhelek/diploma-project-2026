@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "Master ESP"
+		},
+		{
+			"name": "Slave",
+			"path": "Slave"
+		}
+	],
+	"settings": {}
+}

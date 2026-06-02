@@ -26,20 +26,30 @@ int myFunction(int, int);
   int result = 0;
 
 void setup() {
+  Serial.begin(115200);
+  Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
   // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  // int result = myFunction(2, 3);
 
-    printf("input:\n");
-  result |= crypto_aead_encrypt(c, &clen, m, mlen, a, alen, (unsigned char *)0, n, k);
-  printf("encrypt:\n");
-  result |= crypto_aead_decrypt(m, &mlen, (unsigned char *)0, c, clen, a, alen, n, k);
-  printf("decrypt:\n");
+  //   printf("input:\n");
+  // result |= crypto_aead_encrypt(c, &clen, m, mlen, a, alen, (unsigned char *)0, n, k);
+  // printf("encrypt:\n");
+  // result |= crypto_aead_decrypt(m, &mlen, (unsigned char *)0, c, clen, a, alen, n, k);
+  // printf("decrypt:\n");
   // yoan();
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+
+  static unsigned long lastMsg = 0;
+  if (millis() - lastMsg > 5000) {
+    lastMsg = millis();
+    const char* msg = "hello";
+    Serial.println("Publishing message: " + String(msg));
+    Serial2.println("Hello from ESP32 Slave Serial2!");
+  }
 }
 
 // put function definitions here:
