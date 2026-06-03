@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 
 #include "secrets.h"
+#include "uart_protocol.h"
 
 // put function declarations here:
 int myFunction(int, int);
@@ -11,6 +12,19 @@ void reconnect();
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+UartProtocol uartProtocol(Serial2);
+RequestPacket  requestPkt;
+ResponsePacket responsePkt;
+UartStatus status;
+
+static const UartAlgorithm ALGO_PREFERENCE[] = {
+    ALGO_ASCON,
+    ALGO_TINYJAMBU,
+    ALGO_SCHWAEMM,
+};
+static const uint8_t ALGO_COUNT =
+    sizeof(ALGO_PREFERENCE) / sizeof(ALGO_PREFERENCE[0]);
 
 void setup() {
   // put your setup code here, to run once:
@@ -23,24 +37,63 @@ void setup() {
     Serial.print("] ");
   });
   setup_wifi();
+
+  status = uartProtocol.masterSendHi({ ALGO_PREFERENCE[0] });
+  if (status == UART_ERR_NACK) {
+    Serial.println("Slave does not support Ascon");
+    return;
+  } else if (status != UART_OK) {
+    Serial.println("Failed to negotiate algorithm with slave");
+    return;
+  } else {
+    Serial.println("Successfully negotiated algorithm with slave");
+  }
+
+  const char* demoData = "Hello, ESP32 UART protocol!";
+  const char* demoKey  = "secretkey123";
+
+  requestPkt.algorithm = ALGO_PREFERENCE[0];
+  requestPkt.dataSize  = (uint16_t)strlen(demoData);
+  requestPkt.keySize   = (uint16_t)strlen(demoKey);
+  memcpy(requestPkt.data, demoData, requestPkt.dataSize);
+  memcpy(requestPkt.key,  demoKey,  requestPkt.keySize);
+
+  status = uartProtocol.masterSendRequest(requestPkt);
+  if (status != UART_OK) {
+    Serial.println("Failed to send request to slave");
+    return;
+  }
+  else {
+    Serial.println("Request sent to slave");
+  }
+
+  status = uartProtocol.masterReceiveResponse(responsePkt);
+
+  reconnect();
+  if (status != UART_OK) {
+    client.publish("esp32/uart", "Failed to receive response from slave");
+    Serial.println("Failed to receive response from slave");
+  }
+  else {
+    client.publish("esp32/uart", "Received response from slave");
+    client.publish("esp32/uart/time", String(responsePkt.timeMs).c_str());
+    Serial.print("Received response from slave: ");
+    Serial.write(responsePkt.data, responsePkt.dataSize);
+    Serial.println();
+  }
+
 }
 
 void loop() {
-  if (!client.connected()) reconnect();
-  client.loop();
+  // if (!client.connected()) reconnect();
+  // client.loop();
 
-  if (Serial2.available()) {
-    String data = Serial2.readStringUntil('\n');
-    Serial.println("Received from Serial2: " + data);
-    client.publish("esp32/serial", data.c_str());
-  }
-
-  // static unsigned long lastMsg = 0;
-  // if (millis() - lastMsg > 5000) {
-  //   lastMsg = millis();
-  //   const char* msg = "hello";
-  //   client.publish("esp32/temperature", msg);
+  // if (Serial2.available()) {
+  //   String data = Serial2.readStringUntil('\n');
+  //   Serial.println("Received from Serial2: " + data);
+  //   client.publish("esp32/serial", data.c_str());
   // }
+
 }
 
 // put function definitions here:
