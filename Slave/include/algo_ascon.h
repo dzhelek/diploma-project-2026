@@ -35,5 +35,4 @@ private:
     // Internal static buffers — owned by this object
     uint8_t _outputBuf[ALGO_MAX_CIPHERTEXT_SIZE];
     uint64_t  _outputSize;
-    uint8_t _tagBuf   [ALGO_MAX_TAG_SIZE];
 };

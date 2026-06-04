@@ -43,7 +43,7 @@ void setup() {
   });
   setup_wifi();
 
-  status = uartProtocol.masterSendHi({ ALGO_PREFERENCE[0] });
+  status = uartProtocol.masterSendHi({ ALGO_PREFERENCE[1] });
   if (status == UART_ERR_NACK) {
     Serial.println("Slave does not support Ascon");
     return;
@@ -58,15 +58,25 @@ void setup() {
   // const char* demoKey  = "secretkey123";
   // const char* demoNonce = "nonce123";
 
-  // generate pseudo-random 16-byte key and nonce for testing
+  // uint8_t demoKeyBytes[16];
+  // uint8_t demoNonceBytes[16];
+  // for (int i = 0; i < 16; i++) {
+  //   demoKeyBytes[i] = random(256);
+  //   demoNonceBytes[i] = random(256);
+  // }
+
   uint8_t demoKeyBytes[16];
-  uint8_t demoNonceBytes[16];
-  for (int i = 0; i < 16; i++) {
+  uint8_t demoNonceBytes[12];
+  int i;
+  for (i = 0; i < 12; i++) {
     demoKeyBytes[i] = random(256);
     demoNonceBytes[i] = random(256);
   }
+  for (; i < 16; i++) {
+    demoKeyBytes[i] = random(256);
+  }
 
-  requestPkt.algorithm = ALGO_PREFERENCE[0];
+  requestPkt.algorithm = ALGO_PREFERENCE[1];
   requestPkt.dataSize  = (uint16_t)strlen(demoData);
   requestPkt.keySize   = (uint8_t)sizeof(demoKeyBytes);
   requestPkt.nonceSize = (uint8_t)sizeof(demoNonceBytes);
@@ -107,6 +117,7 @@ void setup() {
 
   reconnect();
 
+  client.publish("esp32/uart", algo->name());
   if (status_algo != ALGO_OK) {
     String msg = "Decryption failed: status " + String(status_algo);
     client.publish("esp32/uart", msg.c_str());
@@ -114,8 +125,11 @@ void setup() {
   else if (result.outputSize != requestPkt.dataSize ||
              memcmp(result.output, demoData, result.outputSize) != 0) {
     client.publish("esp32/uart", "Decryption succeeded but content is incorrect");
+    client.publish("esp32/uart", String(result.output, result.outputSize).c_str());
+    client.publish("esp32/uart", String(requestPkt.data, requestPkt.dataSize).c_str());
   } else {
     client.publish("esp32/uart", "Decryption succeeded and content is correct");
+    client.publish("esp32/uart", String(responsePkt.timeMs).c_str());
   }
 }
 

@@ -15,7 +15,7 @@ AlgoStatus SCHWAEMMAlgorithm::decrypt(
     AlgoStatus s;
     if ((s = checkSize(keySize,   this->keySize(),   ALGO_ERR_INVALID_KEY))   != ALGO_OK) return s;
     if ((s = checkSize(nonceSize, this->nonceSize(), ALGO_ERR_INVALID_NONCE)) != ALGO_OK) return s;
-    if ((s = checkSize(tagSize,   this->tagSize(),   ALGO_ERR_AUTH_FAIL))     != ALGO_OK) return s;
+    // if ((s = checkSize(tagSize,   this->tagSize(),   ALGO_ERR_AUTH_FAIL))     != ALGO_OK) return s;
     if (ciphertextSize > ALGO_MAX_CIPHERTEXT_SIZE) return ALGO_ERR_OVERFLOW;
 
     // ── TODO: replace stub with real SCHWAEMM256-128 decrypt + verify ─────
@@ -33,15 +33,15 @@ AlgoStatus SCHWAEMMAlgorithm::decrypt(
     //   // returns 0 on success, non-zero on tag mismatch
     //
     memcpy(_outputBuf, ciphertext, ciphertextSize);        // stub: echo ciphertext
-    memcpy(_tagBuf,    tag,        tagSize);               // stub: copy tag as-is
+    // memcpy(_tagBuf,    tag,        tagSize);               // stub: copy tag as-is
     bool authOk = true;                                    // stub: always succeeds
 
     if (!authOk) return ALGO_ERR_AUTH_FAIL;
 
     result.output     = _outputBuf;
     result.outputSize = ciphertextSize;
-    result.tag        = _tagBuf;
-    result.tagSize    = tagSize;
+    // result.tag        = _tagBuf;
+    // result.tagSize    = tagSize;
 
     return ALGO_OK;
 }

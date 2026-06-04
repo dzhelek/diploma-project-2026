@@ -34,9 +34,9 @@ AlgoStatus SCHWAEMMAlgorithm::encrypt(
 
     // ── Populate result ───────────────────────────────────────────────────
     result.output     = _outputBuf;
-    result.outputSize = plaintextSize;
-    result.tag        = _tagBuf;
-    result.tagSize    = this->tagSize();
+    // result.outputSize = plaintextSize;
+    // result.tag        = _tagBuf;
+    // result.tagSize    = this->tagSize();
 
     return ALGO_OK;
 }

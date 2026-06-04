@@ -14,21 +14,20 @@ AlgoStatus AsconAlgorithm::decrypt(
     AlgoStatus s;
     if ((s = checkSize(keySize,   this->keySize(),   ALGO_ERR_INVALID_KEY))   != ALGO_OK) return s;
     if ((s = checkSize(nonceSize, this->nonceSize(), ALGO_ERR_INVALID_NONCE)) != ALGO_OK) return s;
-    // if ((s = checkSize(tagSize,   this->tagSize(),   ALGO_ERR_AUTH_FAIL))     != ALGO_OK) return s;
     if (ciphertextSize > ALGO_MAX_CIPHERTEXT_SIZE) return ALGO_ERR_OVERFLOW;
 
-    crypto_aead_decrypt(
+    int auth = crypto_aead_decrypt(
         _outputBuf, &_outputSize, // plaintext output
         nullptr, ciphertext, ciphertextSize,
         ad, adSize,
         nonce, key
     );
 
+    if (auth != 0) return ALGO_ERR_AUTH_FAIL;
+
     // ── Populate result ───────────────────────────────────────────────────
     result.output     = _outputBuf;
     result.outputSize = _outputSize;
-    // result.tag        = _tagBuf;
-    // result.tagSize    = tagSize;
 
     return ALGO_OK;
 }

@@ -27,8 +27,6 @@ AlgoStatus AsconAlgorithm::encrypt(
     // ── Populate result ───────────────────────────────────────────────────
     result.output     = _outputBuf;
     result.outputSize = _outputSize;
-    result.tag        = _tagBuf;
-    result.tagSize    = this->tagSize();
 
     return ALGO_OK;
 }
