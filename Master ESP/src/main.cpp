@@ -58,25 +58,25 @@ void setup() {
   // const char* demoKey  = "secretkey123";
   // const char* demoNonce = "nonce123";
 
-  // uint8_t demoKeyBytes[16];
-  // uint8_t demoNonceBytes[16];
-  // for (int i = 0; i < 16; i++) {
-  //   demoKeyBytes[i] = random(256);
-  //   demoNonceBytes[i] = random(256);
-  // }
-
-  uint8_t demoKeyBytes[16];
-  uint8_t demoNonceBytes[12];
-  int i;
-  for (i = 0; i < 12; i++) {
+  uint8_t demoKeyBytes[24];
+  uint8_t demoNonceBytes[24];
+  for (int i = 0; i < 24; i++) {
     demoKeyBytes[i] = random(256);
     demoNonceBytes[i] = random(256);
   }
-  for (; i < 16; i++) {
-    demoKeyBytes[i] = random(256);
-  }
 
-  requestPkt.algorithm = ALGO_PREFERENCE[1];
+  // uint8_t demoKeyBytes[16];
+  // uint8_t demoNonceBytes[12];
+  // int i;
+  // for (i = 0; i < 12; i++) {
+  //   demoKeyBytes[i] = random(256);
+  //   demoNonceBytes[i] = random(256);
+  // }
+  // for (; i < 16; i++) {
+  //   demoKeyBytes[i] = random(256);
+  // }
+
+  requestPkt.algorithm = ALGO_PREFERENCE[2];
   requestPkt.dataSize  = (uint16_t)strlen(demoData);
   requestPkt.keySize   = (uint8_t)sizeof(demoKeyBytes);
   requestPkt.nonceSize = (uint8_t)sizeof(demoNonceBytes);

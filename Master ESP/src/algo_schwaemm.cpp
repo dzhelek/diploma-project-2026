@@ -1,7 +1,6 @@
 #include "algo_schwaemm.h"
 
-// TODO: include your SCHWAEMM / Sparkle library header here, e.g.:
-// #include <sparkle.h>
+#include "schwaemm.h"
 
 AlgoStatus SCHWAEMMAlgorithm::decrypt(
     const uint8_t* ciphertext,  size_t ciphertextSize,
@@ -15,33 +14,21 @@ AlgoStatus SCHWAEMMAlgorithm::decrypt(
     AlgoStatus s;
     if ((s = checkSize(keySize,   this->keySize(),   ALGO_ERR_INVALID_KEY))   != ALGO_OK) return s;
     if ((s = checkSize(nonceSize, this->nonceSize(), ALGO_ERR_INVALID_NONCE)) != ALGO_OK) return s;
-    // if ((s = checkSize(tagSize,   this->tagSize(),   ALGO_ERR_AUTH_FAIL))     != ALGO_OK) return s;
     if (ciphertextSize > ALGO_MAX_CIPHERTEXT_SIZE) return ALGO_ERR_OVERFLOW;
 
-    // ── TODO: replace stub with real SCHWAEMM256-128 decrypt + verify ─────
-    //
-    // Expected call signature (Sparkle reference implementation):
-    //
-    //   int schwaemm256_128_decrypt(
-    //       uint8_t*       plaintext,    // output (same length as ciphertext)
-    //       const uint8_t* ciphertext,   size_t ciphertextLen,
-    //       const uint8_t* tag,          // 16 bytes — returns non-zero on fail
-    //       const uint8_t* ad,           size_t adLen,
-    //       const uint8_t* nonce,        // 32 bytes
-    //       const uint8_t* key           // 16 bytes
-    //   );
-    //   // returns 0 on success, non-zero on tag mismatch
-    //
-    memcpy(_outputBuf, ciphertext, ciphertextSize);        // stub: echo ciphertext
-    // memcpy(_tagBuf,    tag,        tagSize);               // stub: copy tag as-is
-    bool authOk = true;                                    // stub: always succeeds
+    int auth = crypto_aead_decrypt(
+        _outputBuf, &_outputSize,
+        nullptr, // no secret nonce
+        ciphertext, ciphertextSize,
+        ad, adSize,
+        nonce,
+        key
+    );
 
-    if (!authOk) return ALGO_ERR_AUTH_FAIL;
+    if (auth != 0) return ALGO_ERR_AUTH_FAIL;
 
     result.output     = _outputBuf;
-    result.outputSize = ciphertextSize;
-    // result.tag        = _tagBuf;
-    // result.tagSize    = tagSize;
+    result.outputSize = _outputSize;
 
     return ALGO_OK;
 }

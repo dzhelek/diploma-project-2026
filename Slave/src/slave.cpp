@@ -10,7 +10,8 @@ HiPacket hiPkt;
 
 UartAlgorithm SUPPORTED_ALGOS[] = {
     ALGO_ASCON,
-    ALGO_TINYJAMBU
+    ALGO_TINYJAMBU,
+    ALGO_SCHWAEMM,
 };
 const uint8_t SUPPORTED_ALGO_COUNT =
     sizeof(SUPPORTED_ALGOS) / sizeof(SUPPORTED_ALGOS[0]);

@@ -34,5 +34,5 @@ public:
 
 private:
     uint8_t _outputBuf[ALGO_MAX_CIPHERTEXT_SIZE];
-    size_t _outputSize;
+    uint64_t _outputSize;
 };
