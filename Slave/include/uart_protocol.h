@@ -10,8 +10,9 @@
 #define UART_START_BYTE       'J'         // Magic / start byte for every packet
 #define UART_TIMEOUT_MS       3000        // Per-attempt receive timeout (ms)
 #define UART_MAX_RETRIES      3           // Number of retries before giving up
-#define UART_MAX_DATA_SIZE    (16 * 1024) // 16 KB
-#define UART_MAX_KEY_SIZE     (1  * 1024) // 1  KB
+#define UART_MAX_DATA_SIZE    (16 * 1024)     // 16 KB
+#define UART_MAX_KEY_SIZE     (32)        // 32 bytes
+#define UART_MAX_NONCE_SIZE   (32)        // 32 bytes
 
 // ─────────────────────────────────────────────
 //  Enumerations
@@ -83,9 +84,11 @@ struct AckPacket {
 struct RequestPacket {
     UartAlgorithm algorithm;
     uint16_t      dataSize;                  // Number of valid bytes in data[]
-    uint16_t      keySize;                   // Number of valid bytes in key[]
+    uint8_t       keySize;                   // Number of valid bytes in key[]
+    uint8_t       nonceSize;                 // Number of valid bytes in nonce[]
     uint8_t       data[UART_MAX_DATA_SIZE];
     uint8_t       key [UART_MAX_KEY_SIZE];
+    uint8_t       nonce[UART_MAX_NONCE_SIZE];
 };
 
 /**
@@ -140,34 +143,36 @@ public:
      */
     static uint8_t computeCRC8(const uint8_t* data, size_t len);
 
-    // ── Master API ────────────────────────────────────────────────────────
+    // ── Slave API ─────────────────────────────────────────────────────────
 
     /**
-     * Send a "hi" packet and wait for ACK/NACK.
+     * Wait for a "hi" packet, then reply ACK or NACK.
      *
-     * @param pkt  The hi packet to send.
-     * @return UART_OK          – slave acknowledged (supports algorithm).
-     *         UART_ERR_NACK    – slave does not support the algorithm.
-     *         UART_ERR_TIMEOUT – no reply after retries.
-     *         UART_ERR_CRC     – reply failed CRC check.
+     * @param[out] pkt              Populated with the received hi packet.
+     * @param      supportedAlgos    Array of supported algorithms.
+     * @param      supportedAlgoCount Number of supported algorithms.
+     * @return UART_OK          – hi received and ACK sent.
+     *         UART_ERR_NACK    – hi received but NACK sent (unsupported algo).
+     *         UART_ERR_TIMEOUT – nothing received in time.
+     *         UART_ERR_CRC     – packet failed CRC check.
      */
-    UartStatus masterSendHi(const HiPacket& pkt);
+    UartStatus slaveReceiveHi(HiPacket& pkt, UartAlgorithm* supportedAlgos, size_t supportedAlgoCount);
 
     /**
-     * Send a request packet and wait for ACK.
+     * Wait for a request packet, then send ACK.
      *
-     * @param pkt  The request packet to send (data/key must be filled).
-     * @return UART_OK on ACK, error code otherwise.
-     */
-    UartStatus masterSendRequest(const RequestPacket& pkt);
-
-    /**
-     * Wait for a response packet, then send ACK.
-     *
-     * @param[out] pkt  Populated with the received response on UART_OK.
+     * @param[out] pkt  Populated with the received request on UART_OK.
      * @return UART_OK on success, error code otherwise.
      */
-    UartStatus masterReceiveResponse(ResponsePacket& pkt);
+    UartStatus slaveReceiveRequest(RequestPacket& pkt);
+
+    /**
+     * Send a response packet and wait for ACK from the master.
+     *
+     * @param pkt  The response packet to send (data must be filled).
+     * @return UART_OK on success, error code otherwise.
+     */
+    UartStatus slaveSendResponse(const ResponsePacket& pkt);
 
 private:
     // ── Internal helpers ──────────────────────────────────────────────────

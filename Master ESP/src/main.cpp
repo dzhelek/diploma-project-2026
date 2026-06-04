@@ -4,6 +4,7 @@
 
 #include "secrets.h"
 #include "uart_protocol.h"
+#include "algorithm_interface.h"
 
 // put function declarations here:
 int myFunction(int, int);
@@ -17,6 +18,10 @@ UartProtocol uartProtocol(Serial2);
 RequestPacket  requestPkt;
 ResponsePacket responsePkt;
 UartStatus status;
+
+IAlgorithm* algo;
+AlgoResult result;
+AlgoStatus status_algo;
 
 static const UartAlgorithm ALGO_PREFERENCE[] = {
     ALGO_ASCON,
@@ -50,13 +55,25 @@ void setup() {
   }
 
   const char* demoData = "Hello, ESP32 UART protocol!";
-  const char* demoKey  = "secretkey123";
+  // const char* demoKey  = "secretkey123";
+  // const char* demoNonce = "nonce123";
+
+  // generate pseudo-random 16-byte key and nonce for testing
+  uint8_t demoKeyBytes[16];
+  uint8_t demoNonceBytes[16];
+  for (int i = 0; i < 16; i++) {
+    demoKeyBytes[i] = random(256);
+    demoNonceBytes[i] = random(256);
+  }
 
   requestPkt.algorithm = ALGO_PREFERENCE[0];
   requestPkt.dataSize  = (uint16_t)strlen(demoData);
-  requestPkt.keySize   = (uint16_t)strlen(demoKey);
-  memcpy(requestPkt.data, demoData, requestPkt.dataSize);
-  memcpy(requestPkt.key,  demoKey,  requestPkt.keySize);
+  requestPkt.keySize   = (uint8_t)sizeof(demoKeyBytes);
+  requestPkt.nonceSize = (uint8_t)sizeof(demoNonceBytes);
+  requestPkt.data = (uint8_t*)demoData; // Point to demoData string
+  // memcpy(requestPkt.data, demoData, requestPkt.dataSize);
+  memcpy(requestPkt.key,  demoKeyBytes,  requestPkt.keySize);
+  memcpy(requestPkt.nonce, demoNonceBytes, requestPkt.nonceSize);
 
   status = uartProtocol.masterSendRequest(requestPkt);
   if (status != UART_OK) {
@@ -68,20 +85,38 @@ void setup() {
   }
 
   status = uartProtocol.masterReceiveResponse(responsePkt);
-
-  reconnect();
   if (status != UART_OK) {
-    client.publish("esp32/uart", "Failed to receive response from slave");
     Serial.println("Failed to receive response from slave");
+    return;
   }
   else {
-    client.publish("esp32/uart", "Received response from slave");
-    client.publish("esp32/uart/time", String(responsePkt.timeMs).c_str());
-    Serial.print("Received response from slave: ");
-    Serial.write(responsePkt.data, responsePkt.dataSize);
-    Serial.println();
+    Serial.println("Received response from slave");
   }
 
+  algo = AlgorithmFactory(requestPkt.algorithm);
+
+  status_algo = algo->decrypt(
+      responsePkt.data, responsePkt.dataSize,
+      nullptr, 0, // No tag in this demo
+      requestPkt.key,  requestPkt.keySize,
+      requestPkt.nonce, requestPkt.nonceSize,
+      nullptr, 0, // No associated data
+      result
+  );
+  delete[] responsePkt.data; // Clean up dynamically allocated memory
+
+  reconnect();
+
+  if (status_algo != ALGO_OK) {
+    String msg = "Decryption failed: status " + String(status_algo);
+    client.publish("esp32/uart", msg.c_str());
+  }
+  else if (result.outputSize != requestPkt.dataSize ||
+             memcmp(result.output, demoData, result.outputSize) != 0) {
+    client.publish("esp32/uart", "Decryption succeeded but content is incorrect");
+  } else {
+    client.publish("esp32/uart", "Decryption succeeded and content is correct");
+  }
 }
 
 void loop() {

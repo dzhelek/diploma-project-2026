@@ -92,52 +92,139 @@ UartStatus UartProtocol::receiveAck()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Master API
+//  Slave API
 // ─────────────────────────────────────────────────────────────────────────────
 
-UartStatus UartProtocol::masterSendHi(const HiPacket& pkt)
+UartStatus UartProtocol::slaveReceiveHi(HiPacket& pkt, UartAlgorithm* supportedAlgos, size_t supportedAlgoCount)
 {
-    // Packet layout: [J][algorithm][CRC-8]
-    uint8_t buf[2] = { UART_START_BYTE, static_cast<uint8_t>(pkt.algorithm) };
+    // Packet: [J][algorithm][CRC-8]  = 3 bytes
 
     for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
-        // Flush stale incoming data before sending
-        while (_serial.available()) _serial.read();
+        uint8_t buf[3];
+        if (!readExact(buf, sizeof(buf))) continue; // timeout → retry
 
-        sendWithCRC(buf, sizeof(buf));
+        if (buf[0] != UART_START_BYTE) {
+            while (_serial.available()) _serial.read();
+            continue;
+        }
 
-        UartStatus status = receiveAck();
+        if (computeCRC8(buf, 2) != buf[2]) {
+            sendAck(false); // NACK: bad CRC
+            continue;
+        }
 
-        if (status == UART_OK || status == UART_ERR_NACK)
-            return status; // Definitive answer from slave; stop retrying
+        pkt.algorithm = static_cast<UartAlgorithm>(buf[1]);
 
-        // UART_ERR_TIMEOUT, UART_ERR_CRC, UART_ERR_BAD_START → retry
+        bool algoSupported = false;
+        for (size_t i = 0; i < supportedAlgoCount; ++i) {
+            if (supportedAlgos[i] == pkt.algorithm) {
+                algoSupported = true;
+                break;
+            }
+        }
+
+        sendAck(algoSupported);
+        return algoSupported ? UART_OK : UART_ERR_NACK;
     }
 
     return UART_ERR_TIMEOUT;
 }
 
-UartStatus UartProtocol::masterSendRequest(const RequestPacket& pkt)
+UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
 {
-    // Guard against oversized payloads
+    // Packet: [J][algo][dataHi][dataLo][keyLength][nonceLength][data...][key...][nonce...][CRC-8]
+
+    for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
+
+        // ── 1. Start byte ───────────────────────────────────────────────
+        uint8_t startByte;
+        if (!readExact(&startByte, 1)) continue;
+
+        if (startByte != UART_START_BYTE) {
+            while (_serial.available()) _serial.read();
+            continue;
+        }
+
+        // ── 2. Fixed header ─────────────────────────────────────────────
+        uint8_t hdr[5]; // [algo][dataHi][dataLo][keyLength][nonceLength]
+        if (!readExact(hdr, sizeof(hdr))) continue;
+
+        uint16_t dataSize = ((uint16_t)hdr[1] << 8) | hdr[2];
+        uint8_t keySize  = hdr[3];
+        uint8_t nonceSize = hdr[4];
+
+        if (dataSize > UART_MAX_DATA_SIZE || keySize > UART_MAX_KEY_SIZE || nonceSize > UART_MAX_NONCE_SIZE) {
+            while (_serial.available()) _serial.read();
+            sendAck(false);
+            return UART_ERR_OVERFLOW;
+        }
+
+        // ── 3. Variable data ────────────────────────────────────────────
+        if (dataSize > 0 && !readExact(pkt.data, dataSize)) continue;
+        if (keySize  > 0 && !readExact(pkt.key,  keySize))  continue;
+        if (nonceSize > 0 && !readExact(pkt.nonce, nonceSize)) continue;
+
+        // ── 4. CRC byte ─────────────────────────────────────────────────
+        uint8_t receivedCrc;
+        if (!readExact(&receivedCrc, 1)) continue;
+
+        // ── 5. Verify CRC ───────────────────────────────────────────────
+        // Rebuild the full transmitted header as seen on wire: [J][algo][...]
+        uint8_t fullHdr[6];
+        fullHdr[0] = startByte;
+        fullHdr[1] = hdr[0]; // algo
+        fullHdr[2] = hdr[1]; fullHdr[3] = hdr[2]; // dataSize
+        fullHdr[4] = hdr[3]; fullHdr[5] = hdr[4]; // keySize
+
+        auto crc8_continue = [](uint8_t runningCrc,
+                                const uint8_t* data, size_t len) -> uint8_t {
+            for (size_t i = 0; i < len; ++i) {
+                runningCrc ^= data[i];
+                for (uint8_t bit = 0; bit < 8; ++bit) {
+                    if (runningCrc & 0x80)
+                        runningCrc = (runningCrc << 1) ^ 0x07;
+                    else
+                        runningCrc <<= 1;
+                }
+            }
+            return runningCrc;
+        };
+
+        uint8_t calcCrc = 0x00;
+        calcCrc = crc8_continue(calcCrc, fullHdr,  sizeof(fullHdr));
+        calcCrc = crc8_continue(calcCrc, pkt.data, dataSize);
+        calcCrc = crc8_continue(calcCrc, pkt.key,  keySize);
+        calcCrc = crc8_continue(calcCrc, pkt.nonce, nonceSize);
+        if (calcCrc != receivedCrc) {
+            sendAck(false); // NACK: CRC mismatch
+            continue;
+        }
+
+        // ── 6. Populate struct and ACK ──────────────────────────────────
+        pkt.algorithm = static_cast<UartAlgorithm>(hdr[0]);
+        pkt.dataSize  = dataSize;
+        pkt.keySize   = keySize;
+        pkt.nonceSize = nonceSize;
+        sendAck(true);
+        return UART_OK;
+    }
+
+    return UART_ERR_TIMEOUT;
+}
+
+UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
+{
     if (pkt.dataSize > UART_MAX_DATA_SIZE) return UART_ERR_OVERFLOW;
-    if (pkt.keySize  > UART_MAX_KEY_SIZE)  return UART_ERR_OVERFLOW;
 
-    // Build header: [J][algo][dataHi][dataLo][keyHi][keyLo]
-    uint8_t header[6];
+    // Build header: [J][timeHi][timeLo][dataSizeHi][dataSizeLo]
+    uint8_t header[5];
     header[0] = UART_START_BYTE;
-    header[1] = static_cast<uint8_t>(pkt.algorithm);
-    header[2] = static_cast<uint8_t>(pkt.dataSize >> 8);
-    header[3] = static_cast<uint8_t>(pkt.dataSize & 0xFF);
-    header[4] = static_cast<uint8_t>(pkt.keySize  >> 8);
-    header[5] = static_cast<uint8_t>(pkt.keySize  & 0xFF);
+    header[1] = static_cast<uint8_t>(pkt.timeMs   >> 8);
+    header[2] = static_cast<uint8_t>(pkt.timeMs   & 0xFF);
+    header[3] = static_cast<uint8_t>(pkt.dataSize >> 8);
+    header[4] = static_cast<uint8_t>(pkt.dataSize & 0xFF);
 
-    // CRC covers header + data + key together
-    uint8_t crc = computeCRC8(header, sizeof(header));
-    crc = computeCRC8(pkt.data, pkt.dataSize); // re-run from scratch below
-
-    // Compute full packet CRC: header || data || key
-    // (We feed them incrementally by manually running the CRC loop)
+    // Compute CRC over header + data
     auto crc8_continue = [](uint8_t runningCrc,
                             const uint8_t* data, size_t len) -> uint8_t {
         for (size_t i = 0; i < len; ++i) {
@@ -155,94 +242,22 @@ UartStatus UartProtocol::masterSendRequest(const RequestPacket& pkt)
     uint8_t fullCrc = 0x00;
     fullCrc = crc8_continue(fullCrc, header,   sizeof(header));
     fullCrc = crc8_continue(fullCrc, pkt.data, pkt.dataSize);
-    fullCrc = crc8_continue(fullCrc, pkt.key,  pkt.keySize);
 
     for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
         while (_serial.available()) _serial.read();
 
-        // Send header, then data, then key, then CRC
+        // Transmit: header | data | CRC
         _serial.write(header, sizeof(header));
         if (pkt.dataSize > 0) _serial.write(pkt.data, pkt.dataSize);
-        if (pkt.keySize  > 0) _serial.write(pkt.key,  pkt.keySize);
         _serial.write(&fullCrc, 1);
 
         UartStatus status = receiveAck();
 
-        if (status == UART_OK || status == UART_ERR_NACK)
-            return status;
-    }
+        if (status == UART_OK)
+            return UART_OK;
 
-    return UART_ERR_TIMEOUT;
-}
-
-UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
-{
-    // Fixed header after start byte: [timeHi][timeLo][dataSizeHi][dataSizeLo]
-    // Total fixed portion transmitted: [J] + 4 bytes + n bytes data + [CRC]
-
-    for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
-
-        // ── 1. Read start byte ──────────────────────────────────────────
-        uint8_t startByte;
-        if (!readExact(&startByte, 1)) continue; // timeout → retry
-
-        if (startByte != UART_START_BYTE) {
-            // Drain whatever is in the buffer and retry
-            while (_serial.available()) _serial.read();
-            continue;
-        }
-
-        // ── 2. Read fixed header (4 bytes) ─────────────────────────────
-        uint8_t hdr[4];
-        if (!readExact(hdr, sizeof(hdr))) continue;
-
-        uint16_t timeMs   = ((uint16_t)hdr[0] << 8) | hdr[1];
-        uint16_t dataSize = ((uint16_t)hdr[2] << 8) | hdr[3];
-
-        if (dataSize > UART_MAX_DATA_SIZE) {
-            // Overflow: drain and retry
-            while (_serial.available()) _serial.read();
-            return UART_ERR_OVERFLOW;
-        }
-
-        // ── 3. Read variable data ───────────────────────────────────────
-        if (dataSize > 0 && !readExact(pkt.data, dataSize)) continue;
-
-        // ── 4. Read CRC byte ────────────────────────────────────────────
-        uint8_t receivedCrc;
-        if (!readExact(&receivedCrc, 1)) continue;
-
-        // ── 5. Verify CRC over entire packet (start byte included) ──────
-        auto crc8_continue = [](uint8_t runningCrc,
-                                const uint8_t* data, size_t len) -> uint8_t {
-            for (size_t i = 0; i < len; ++i) {
-                runningCrc ^= data[i];
-                for (uint8_t bit = 0; bit < 8; ++bit) {
-                    if (runningCrc & 0x80)
-                        runningCrc = (runningCrc << 1) ^ 0x07;
-                    else
-                        runningCrc <<= 1;
-                }
-            }
-            return runningCrc;
-        };
-
-        uint8_t calcCrc = 0x00;
-        calcCrc = crc8_continue(calcCrc, &startByte, 1);
-        calcCrc = crc8_continue(calcCrc, hdr,        sizeof(hdr));
-        calcCrc = crc8_continue(calcCrc, pkt.data,   dataSize);
-
-        if (calcCrc != receivedCrc) {
-            sendAck(false); // NACK to signal corruption
-            continue;       // retry
-        }
-
-        // ── 6. Populate output struct and send ACK ──────────────────────
-        pkt.timeMs   = timeMs;
-        pkt.dataSize = dataSize;
-
-        sendAck(true);
-        return UART_OK;
+        // NACK means master detected a CRC error; resend
+        // UART_ERR_TIMEOUT means no reply at all; also resend
     }
 
     return UART_ERR_TIMEOUT;
