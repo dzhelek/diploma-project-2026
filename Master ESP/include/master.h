@@ -1,3 +1,5 @@
 #pragma once
 
-void request_slave();
+#include "uart_protocol.h"
+
+void request_slave(RequestPacket& requestPkt, ResponsePacket& responsePkt);

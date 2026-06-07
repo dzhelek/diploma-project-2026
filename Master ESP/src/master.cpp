@@ -3,8 +3,6 @@
 #include "uart_protocol.h"
 
 UartProtocol uartProtocol(Serial2);
-RequestPacket  requestPkt;
-ResponsePacket responsePkt;
 UartStatus status;
 
 static const UartAlgorithm ALGO_PREFERENCE[] = {
@@ -15,7 +13,7 @@ static const UartAlgorithm ALGO_PREFERENCE[] = {
 static const uint8_t ALGO_COUNT =
     sizeof(ALGO_PREFERENCE) / sizeof(ALGO_PREFERENCE[0]);
 
-void request_slave() {
+void request_slave(RequestPacket& requestPkt, ResponsePacket& responsePkt) {
   status = uartProtocol.masterSendHi({ ALGO_PREFERENCE[1] });
   if (status == UART_ERR_NACK) {
     Serial.println("Slave does not support Ascon");
@@ -60,7 +58,7 @@ void request_slave() {
 
   status = uartProtocol.masterSendRequest(requestPkt);
   if (status != UART_OK) {
-    Serial.println("Failed to send request to slave");
+    Serial.println("Failed to send request to slave, status: " + String(status));
     return;
   }
   else {
@@ -69,7 +67,7 @@ void request_slave() {
 
   status = uartProtocol.masterReceiveResponse(responsePkt);
   if (status != UART_OK) {
-    Serial.println("Failed to receive response from slave");
+    Serial.println("Failed to receive response from slave, status: " + String(status));
     return;
   }
   else {

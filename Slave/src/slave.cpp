@@ -3,8 +3,6 @@
 #include "crypto_aead.h"
 
 UartProtocol uartProtocol(Serial2);
-RequestPacket  requestPkt;
-ResponsePacket responsePkt;
 UartStatus status;
 HiPacket hiPkt;
 
@@ -16,7 +14,7 @@ UartAlgorithm SUPPORTED_ALGOS[] = {
 const uint8_t SUPPORTED_ALGO_COUNT =
     sizeof(SUPPORTED_ALGOS) / sizeof(SUPPORTED_ALGOS[0]);
 
-bool wait_for_master() {
+bool wait_for_master(RequestPacket& pkt) {
 
   Serial.println("Waiting for Hi");
   status = uartProtocol.slaveReceiveHi(hiPkt, SUPPORTED_ALGOS, SUPPORTED_ALGO_COUNT);
@@ -31,7 +29,7 @@ bool wait_for_master() {
     Serial.println(hiPkt.algorithm);
   }
 
-  status = uartProtocol.slaveReceiveRequest(requestPkt);
+  status = uartProtocol.slaveReceiveRequest(pkt);
   if (status != UART_OK) {
     Serial.println("Failed to receive request from master");
     return false;
@@ -41,8 +39,8 @@ bool wait_for_master() {
   return true;
 }
 
-bool respond_to_master() {
-  status = uartProtocol.slaveSendResponse(responsePkt);
+bool respond_to_master(ResponsePacket& pkt) {
+  status = uartProtocol.slaveSendResponse(pkt);
   if (status != UART_OK) {
     Serial.println("Failed to send response to master");
     return false;

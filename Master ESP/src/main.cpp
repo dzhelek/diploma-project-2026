@@ -13,11 +13,10 @@ void reconnect();
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-extern RequestPacket  requestPkt;
-extern ResponsePacket responsePkt;
+RequestPacket  requestPkt;
+ResponsePacket responsePkt;
 
 IAlgorithm* algo;
-AlgoResult result;
 AlgoStatus status_algo;
 
 
@@ -33,7 +32,10 @@ void setup() {
   });
   setup_wifi();
 
-  request_slave();
+  request_slave(requestPkt, responsePkt);
+
+  uint8_t* resultBuffer = new uint8_t[requestPkt.dataSize];
+  size_t resultSize = 0;
 
   algo = AlgorithmFactory(requestPkt.algorithm);
 
@@ -43,7 +45,7 @@ void setup() {
       requestPkt.key,  requestPkt.keySize,
       requestPkt.nonce, requestPkt.nonceSize,
       nullptr, 0, // No associated data
-      result
+      resultBuffer, &resultSize
   );
   delete[] responsePkt.data; // Clean up dynamically allocated memory
 
@@ -54,15 +56,17 @@ void setup() {
     String msg = "Decryption failed: status " + String(status_algo);
     client.publish("esp32/uart", msg.c_str());
   }
-  else if (result.outputSize != requestPkt.dataSize ||
-             memcmp(result.output, requestPkt.data, result.outputSize) != 0) {
+  else if (resultSize != requestPkt.dataSize ||
+             memcmp(resultBuffer, requestPkt.data, resultSize) != 0) {
     client.publish("esp32/uart", "Decryption succeeded but content is incorrect");
-    client.publish("esp32/uart", String(result.output, result.outputSize).c_str());
+    client.publish("esp32/uart", String(resultBuffer, resultSize).c_str());
     client.publish("esp32/uart", String(requestPkt.data, requestPkt.dataSize).c_str());
   } else {
     client.publish("esp32/uart", "Decryption succeeded and content is correct");
     client.publish("esp32/uart", String(responsePkt.timeMs).c_str());
   }
+
+  delete[] resultBuffer; // Clean up dynamically allocated memory
 }
 
 void loop() {

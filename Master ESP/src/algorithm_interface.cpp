@@ -3,10 +3,7 @@
 #include "algo_tinyjambu.h"
 #include "algo_schwaemm.h"
 
-/**
- * Singleton instances — one per algorithm, allocated in static storage.
- * No heap allocation; safe to call at any time after global constructors run.
- */
+// Singleton instances — one per algorithm, allocated in static storage.
 static AsconAlgorithm     s_ascon;
 static TinyJAMBUAlgorithm s_tinyjambu;
 static SCHWAEMMAlgorithm  s_schwaemm;

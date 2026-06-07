@@ -7,11 +7,10 @@ void setup_wifi();
 
 uint32_t startMs, elapsed;
 IAlgorithm* algo;
-AlgoResult result;
 AlgoStatus status_algo;
 
-extern RequestPacket requestPkt;
-extern ResponsePacket responsePkt;
+RequestPacket requestPkt;
+ResponsePacket responsePkt;
 
 void setup() {
   Serial.begin(115200);
@@ -22,32 +21,29 @@ void setup() {
 }
 
 void loop() {
-  while(!wait_for_master()) delay(100);
+  while(!wait_for_master(requestPkt)) delay(100);
 
   algo = AlgorithmFactory(requestPkt.algorithm);
 
-  if (requestPkt.keySize != algo->keySize()) {
-    Serial.println("Invalid key size in request");
-    return;
-  }
-  if (requestPkt.nonceSize != algo->nonceSize()) {
-    Serial.println("Invalid nonce size in request");
-    return;
-  }
-
   startMs = millis();
+
+  size_t responsePktDataSize = requestPkt.dataSize + algo->tagSize();
+  responsePkt.data = new uint8_t[responsePktDataSize]; // Allocate buffer for ciphertext + tag
   status_algo = algo->encrypt(
       requestPkt.data, requestPkt.dataSize,
       requestPkt.key,  requestPkt.keySize,
       requestPkt.nonce, requestPkt.nonceSize,
       nullptr, 0, // No associated data
-      result
+      responsePkt.data, &responsePktDataSize
   );
+
   elapsed = millis() - startMs;
 
+  responsePkt.dataSize = responsePktDataSize;
   responsePkt.timeMs = elapsed > 0xFFFF ? 0xFFFF : (uint16_t)elapsed;
-  responsePkt.dataSize = result.outputSize;
-  memcpy(responsePkt.data, result.output, result.outputSize);
 
-  respond_to_master();
+  respond_to_master(responsePkt);
+
+  delete[] responsePkt.data; // Clean up ciphertext buffer
+  delete[] requestPkt.data;  // Clean up plaintext buffer
 }

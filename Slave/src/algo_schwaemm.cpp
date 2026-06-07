@@ -3,20 +3,21 @@
 #include "schwaemm.h"
 
 AlgoStatus SCHWAEMMAlgorithm::encrypt(
-    const uint8_t* plaintext,  size_t plaintextSize,
-    const uint8_t* key,        size_t keySize,
-    const uint8_t* nonce,      size_t nonceSize,
-    const uint8_t* ad,         size_t adSize,
-    AlgoResult&    result)
+    const uint8_t* plaintext,   size_t plaintextSize,
+    const uint8_t* key,         size_t keySize,
+    const uint8_t* nonce,       size_t nonceSize,
+    const uint8_t* ad,          size_t adSize,
+    uint8_t* result,            size_t* resultSize
+)
 {
-    // ── Validate parameters ───────────────────────────────────────────────
     AlgoStatus s;
     if ((s = checkSize(keySize,   this->keySize(),   ALGO_ERR_INVALID_KEY))   != ALGO_OK) return s;
     if ((s = checkSize(nonceSize, this->nonceSize(), ALGO_ERR_INVALID_NONCE)) != ALGO_OK) return s;
-    if (plaintextSize > ALGO_MAX_PLAINTEXT_SIZE) return ALGO_ERR_OVERFLOW;
+
+    unsigned long long outLen;
 
     crypto_aead_encrypt(
-        _outputBuf, &_outputSize,
+        result, &outLen,
         plaintext, plaintextSize,
         ad, adSize,
         nullptr,
@@ -24,9 +25,8 @@ AlgoStatus SCHWAEMMAlgorithm::encrypt(
         key
     );
 
-    // ── Populate result ───────────────────────────────────────────────────
-    result.output     = _outputBuf;
-    result.outputSize = _outputSize;
+    if (resultSize)
+        *resultSize = static_cast<size_t>(outLen);
 
     return ALGO_OK;
 }

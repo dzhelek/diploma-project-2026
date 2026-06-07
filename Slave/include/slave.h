@@ -2,6 +2,6 @@
 
 #include "uart_protocol.h"
 
-bool wait_for_master();
-bool respond_to_master();
-bool isAlgorithmSupported(UartAlgorithm algo);
+bool wait_for_master(RequestPacket&);
+bool respond_to_master(ResponsePacket&);
+bool isAlgorithmSupported(UartAlgorithm);
