@@ -75,10 +75,10 @@ struct AckPacket {
 
 /**
  * Request packet  –  master → slave
- *   [J][algorithm][data_size_hi][data_size_lo][key_size_hi][key_size_lo]
- *   [data_size bytes of data][key_size bytes of key][CRC-8]
+ *   [J][algorithm][data_size_hi][data_size_lo][key_size][nonce_size]
+ *   [data_size bytes of data][key_size bytes of key][nonce_size bytes of nonce][CRC-8]
  *
- * The library owns the data/key buffers; pointers remain valid until the
+ * The library owns the data/key/nonce buffers; pointers remain valid until the
  * next call that modifies this struct.
  */
 struct RequestPacket {
