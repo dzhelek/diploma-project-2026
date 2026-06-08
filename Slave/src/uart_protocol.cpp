@@ -165,10 +165,10 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
         calcCrc = continueCRC8(calcCrc, pkt.nonce, pkt.nonceSize);
 
         if (calcCrc != receivedCrc) {
-            Serial.println("CRC calculated: " + String(calcCrc, HEX) + ", CRC received: " + String(receivedCrc, HEX));
+            // Serial.println("CRC calculated: " + String(calcCrc, HEX) + ", CRC received: " + String(receivedCrc, HEX));
             sendAck(false); // NACK: CRC mismatch
-            Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.keySize) + " bytes key, " + String(pkt.nonceSize) + " bytes nonce");
-            Serial.println("Data (hex): " + String((char*)pkt.data, pkt.dataSize));
+            // Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.keySize) + " bytes key, " + String(pkt.nonceSize) + " bytes nonce");
+            // Serial.println("Data (hex): " + String((char*)pkt.data, pkt.dataSize));
             continue;
         }
 

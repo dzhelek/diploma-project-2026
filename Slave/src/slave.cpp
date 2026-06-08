@@ -2,7 +2,18 @@
 
 #include "crypto_aead.h"
 
+#ifdef SLAVE_ESP32
 UartProtocol uartProtocol(Serial2);
+#endif
+#ifdef SLAVE_ESP_12
+UartProtocol uartProtocol(Serial);
+#endif
+#ifdef SLAVE_RASPBERRY_PI_PICO
+UartProtocol uartProtocol(Serial1);
+#endif
+#ifdef SLAVE_ARDUINO_NANO
+UartProtocol uartProtocol(Serial);
+#endif
 UartStatus status;
 HiPacket hiPkt;
 

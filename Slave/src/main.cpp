@@ -14,7 +14,20 @@ ResponsePacket responsePkt;
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
+#ifdef SLAVE_ESP32
+   Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
+#endif
+#ifdef SLAVE_ESP_12
+   Serial.begin(9600);
+#endif
+#ifdef SLAVE_RASPBERRY_PI_PICO
+   Serial1.setTX(14);
+   Serial1.setRX(15);
+   Serial1.begin(9600);
+#endif
+#ifdef SLAVE_ARDUINO_NANO
+   Serial.begin(9600);
+#endif
 
   Serial.println("Setup complete");
 
