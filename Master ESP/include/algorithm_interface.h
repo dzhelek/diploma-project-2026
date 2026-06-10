@@ -20,6 +20,7 @@ public:
     virtual ~IAlgorithm() = default;
 
     virtual const char* name() const = 0;
+    virtual UartAlgorithm id() const = 0;
 
     virtual size_t keySize()   const = 0;
     virtual size_t nonceSize() const = 0;

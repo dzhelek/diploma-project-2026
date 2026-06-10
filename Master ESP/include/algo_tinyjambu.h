@@ -5,6 +5,7 @@
 class TinyJAMBUAlgorithm : public IAlgorithm {
 public:
     const char* name()      const override { return "TinyJAMBU-128"; }
+    UartAlgorithm id()      const override { return ALGO_TINYJAMBU; }
     size_t      keySize()   const override { return 16; }
     size_t      nonceSize() const override { return 12; }
     size_t      tagSize()   const override { return  8; }

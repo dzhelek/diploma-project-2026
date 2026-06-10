@@ -5,6 +5,7 @@
 class SCHWAEMMAlgorithm : public IAlgorithm {
 public:
     const char* name()      const override { return "SCHWAEMM192-192"; }
+    UartAlgorithm id()      const override { return ALGO_SCHWAEMM; }
     size_t      keySize()   const override { return 24; }
     size_t      nonceSize() const override { return 24; }
     size_t      tagSize()   const override { return 24; }

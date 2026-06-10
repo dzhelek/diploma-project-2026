@@ -5,6 +5,7 @@
 class AsconAlgorithm : public IAlgorithm {
 public:
     const char* name()      const override { return "Ascon-128"; }
+    UartAlgorithm id()      const override { return ALGO_ASCON; }
     size_t      keySize()   const override { return 16; }
     size_t      nonceSize() const override { return 16; }
     size_t      tagSize()   const override { return 16; }
