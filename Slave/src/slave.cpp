@@ -33,7 +33,7 @@ bool wait_for_master(RequestPacket& pkt) {
     Serial.println("Master requested unsupported algorithm");
     return false;
   } else if (status != UART_OK) {
-    Serial.println("Failed to receive Hi from master");
+    Serial.println("Failed to receive Hi from master, status: " + String(status));
     return false;
   } else {
     Serial.print("Received Hi from master, algorithm: ");
@@ -42,7 +42,7 @@ bool wait_for_master(RequestPacket& pkt) {
 
   status = uartProtocol.slaveReceiveRequest(pkt);
   if (status != UART_OK) {
-    Serial.println("Failed to receive request from master");
+    Serial.println("Failed to receive request from master, status:" + String(status));
     return false;
   } else {
     Serial.println("Received request from master");
@@ -53,7 +53,7 @@ bool wait_for_master(RequestPacket& pkt) {
 bool respond_to_master(ResponsePacket& pkt) {
   status = uartProtocol.slaveSendResponse(pkt);
   if (status != UART_OK) {
-    Serial.println("Failed to send response to master");
+    Serial.println("Failed to send response to master, status: " + String(status));
     return false;
   } else {
     Serial.println("Sent response to master");

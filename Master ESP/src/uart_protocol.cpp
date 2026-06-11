@@ -170,6 +170,8 @@ UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
 
         if (pkt.dataSize > 0 && !readExact(pkt.data, pkt.dataSize)) continue;
 
+        Serial.println("Receiving Response: dataSize=" + String(pkt.dataSize) + ", timems=" + String(pkt.timeMs));
+
         uint8_t receivedCrc;
         if (!readExact(&receivedCrc, 1)) continue;
 
@@ -179,7 +181,10 @@ UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
         calcCrc = continueCRC8(calcCrc, pkt.data, pkt.dataSize);
 
         if (calcCrc != receivedCrc) {
-            sendAck(false); // NACK to signal corruption
+            Serial.println("CRC calculated: " + String(calcCrc, HEX) + ", CRC received: " + String(receivedCrc, HEX));
+            sendAck(false); // NACK: CRC mismatch
+            Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.timeMs) + " time ms, ");
+            Serial.println("Data (hex): " + String((char*)pkt.data, pkt.dataSize));
             continue;       // retry
         }
 

@@ -13,9 +13,11 @@ RequestPacket requestPkt;
 ResponsePacket responsePkt;
 
 void setup() {
-  Serial.begin(115200);
 #ifdef SLAVE_ESP32
+   Serial.begin(115200);
    Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
+   while(!Serial);
+   while(!Serial2);
 #endif
 #ifdef SLAVE_ESP_12
    Serial.begin(9600);
@@ -30,10 +32,11 @@ void setup() {
 #endif
 
   Serial.println("Setup complete");
-
 }
 
 void loop() {
+   while(!Serial2.available());
+
   while(!wait_for_master(requestPkt)) delay(100);
 
   algo = AlgorithmFactory(requestPkt.algorithm);

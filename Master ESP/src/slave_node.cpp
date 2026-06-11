@@ -23,16 +23,12 @@ void SlaveNode::prepareBuffers(IAlgorithm* algo, size_t dataSize)
     for (int i = 0; i < dataSize; ++i) { _plaintextBuf[i] = random(256); }
 }
 
-bool SlaveNode::beginSensor()
-{
-    return _sensor.begin();
-}
-
 void SlaveNode::activateUart()
 {
     // Remap Serial2 to this node's GPIO pins then (re)start it
-    Serial2.end();
+    // Serial2.end();
     Serial2.begin(9600, SERIAL_8N1, _rxPin, _txPin);
+    while(!Serial2);
 }
 
 void SlaveNode::deactivateUart()
@@ -44,7 +40,7 @@ void SlaveNode::deactivateUart()
 //  runBenchmark
 // ─────────────────────────────────────────────────────────────────────────────
 
-UartStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
+BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
                                    uint16_t         dataSize,
                                    BenchmarkResult& result)
 {
@@ -62,26 +58,28 @@ UartStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     result.uartStatus     = UART_OK;
     result.algoStatus     = ALGO_OK;
 
-    // ── Activate UART on this node's pins ─────────────────────────────────
     activateUart();
 
     // ── Step 1: Hi handshake ──────────────────────────────────────────────
     HiPacket hiPkt;
     hiPkt.algorithm = algo->id();
 
+    Serial.print("Sending Hi...");
     UartStatus us = _uart.masterSendHi(hiPkt);
     result.uartStatus = us;
 
-    if (us == UART_ERR_NACK) {
-        // Slave does not support this algorithm — try the next one.
-        deactivateUart();
-        return us;
-    }
     if (us != UART_OK) {
-        // Timeout or comms error during negotiation
         deactivateUart();
-        return us;
+        switch(us) {
+            case UART_ERR_NACK:
+                return BENCH_HI_NACK;
+            case UART_ERR_TIMEOUT:
+                return BENCH_HI_TIMEOUT;
+            default:
+                return BENCH_HI_ERR;
+        }
     }
+    Serial.println("OK!");
 
     _plaintextBuf = new uint8_t[dataSize];
     prepareBuffers(algo, dataSize);
@@ -90,23 +88,36 @@ UartStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     reqPkt.algorithm = algo->id();
     reqPkt.dataSize  = dataSize;
     reqPkt.keySize   = (uint16_t)algo->keySize();
+    reqPkt.nonceSize = algo->nonceSize();
     reqPkt.data = _plaintextBuf;
     memcpy(reqPkt.key, _keyBuf, algo->keySize());
     memcpy(reqPkt.nonce, _nonceBuf, algo->nonceSize());
 
+    Serial.print("Sending Request...");
     us = _uart.masterSendRequest(reqPkt);
     result.uartStatus = us;
 
     if (us != UART_OK) {
         deactivateUart();
-        return us;
+         switch(us) {
+            case UART_ERR_NACK:
+                return BENCH_REQUEST_NACK;
+            case UART_ERR_TIMEOUT:
+                return BENCH_REQUEST_TIMEOUT;
+            default:
+                return BENCH_REQUEST_ERR;
+        }
+    }
+    Serial.println("OK!");
+
+    if (_sensor.begin()) {
+        _sensor.startMeasurement();
+        do {
+            _sensor.update();
+        } while(!Serial2.available());
     }
 
-    _sensor.startMeasurement();
-    do {
-        _sensor.update();
-    } while(!Serial2.available());
-
+    Serial.print("Receiving Response...");
     ResponsePacket respPkt;
     us = _uart.masterReceiveResponse(respPkt);
     result.uartStatus = us;
@@ -121,31 +132,34 @@ UartStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
 
     if (us != UART_OK) {
         deactivateUart();
-        return us;
+        return BENCH_RESPONSE_TIMEOUT;
     }
+    Serial.println("OK!");
+
 
     // ── Step 8: Decrypt response and verify ───────────────────────────────
     //
     // Response data layout (packed by slave): [ciphertext | tag]
     // Tag size is algo->tagSize(); ciphertext size = dataSize.
     //
+    Serial.print("Decrypting...");
     size_t expectedTotal = dataSize + algo->tagSize();
 
     if (respPkt.dataSize != (uint16_t)expectedTotal) {
         // Unexpected payload length — treat as protocol error
         result.uartStatus = UART_ERR_UNKNOWN;
         deactivateUart();
-        return UART_ERR_UNKNOWN;
+        return BENCH_DECRYPT_ERR;
     }
 
-    const uint8_t* ciphertext = respPkt.data;
-    const uint8_t* tag        = respPkt.data + dataSize;
+    // const uint8_t* ciphertext = respPkt.data;
+    // const uint8_t* tag        = respPkt.data + dataSize;
 
     uint8_t* decOutputBuf = new uint8_t[dataSize];
     size_t decOutputLen = 0;
     AlgoStatus as = algo->decrypt(
-        ciphertext,    dataSize,
-        tag,           algo->tagSize(),
+        respPkt.data,  respPkt.dataSize,
+        nullptr,       0,
         _keyBuf,       algo->keySize(),
         _nonceBuf,     algo->nonceSize(),
         nullptr,       0,               // no associated data in benchmark
@@ -157,10 +171,12 @@ UartStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
         // Compare decrypted output against original plaintext
         result.decryptOk =
             (memcmp(decOutputBuf, _plaintextBuf, dataSize) == 0);
+        Serial.println("OK!");
     }
 
     deactivateUart();
     delete[] _plaintextBuf;
     delete[] decOutputBuf;
-    return UART_OK;
+    delete[] respPkt.data;
+    return BENCH_OK;
 }

@@ -3,11 +3,26 @@
 #include <PubSubClient.h>
 #include <Wire.h>
 
+#include "wolfssl.h"
+#include "wolfssl/ssl.h"
+#include "WolfSSLClient.h"
+
 #include "secrets.h"
+#include "cert.h"
 #include "algorithm_interface.h"
-// #include "master.h"
 #include "slave_node.h"
 
+#include <time.h>      // with the includes
+void setup_time();     // with the prototypes (~line 16)
+
+void setup_time() {
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");   // UTC
+  Serial.print("Waiting for NTP time");
+  time_t now = time(nullptr);
+  int tries = 40;
+  while (now < 1700000000 && --tries > 0) { delay(500); Serial.print("."); now = time(nullptr); }
+  Serial.printf("\nUTC now: %s", asctime(gmtime(&now)));
+}
 // put function declarations here:
 void setup_wifi();
 void reconnect();
@@ -16,7 +31,8 @@ void printResult(const BenchmarkResult&);
 void publishResult(const BenchmarkResult& r);
 
 WiFiClient espClient;
-PubSubClient client(espClient);
+WolfSSLClient tls(espClient);
+PubSubClient client(tls);
 
 RequestPacket  requestPkt;
 ResponsePacket responsePkt;
@@ -37,6 +53,16 @@ void setup() {
   Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
   Wire.begin();
 
+  wolfSSL_Init();
+  WOLFSSL_CTX* probe = wolfSSL_CTX_new(wolfTLSv1_3_client_method());
+  bool ok = wolfSSL_CTX_set_cipher_list(probe, "TLS13-ASCONAEAD128-ASCONHASH256") == WOLFSSL_SUCCESS;
+  Serial.println(ok ? "ASCON SUITE: present" : "ASCON SUITE: MISSING from this build");
+  wolfSSL_CTX_free(probe);
+
+  // tls.setCACert(root_ca);
+  tls.setInsecure();
+  tls.setCipherList("TLS13-ASCONAEAD128-ASCONHASH256");
+  // tls.setServerName(MQTT_SERVER);
   client.setServer(MQTT_SERVER, MQTT_PORT);
   client.setCallback([](char* topic, byte* payload, unsigned int length) {
     Serial.print("Message arrived [");
@@ -45,8 +71,15 @@ void setup() {
   });
 
   setup_wifi();
+  setup_time();
+  reconnect();
+  
+  client.publish("esp32/mqtt", "connection successful");
 
   benchmark();
+
+  client.publish("esp32/mqtt", "ready");
+
   /*
 
   request_slave(requestPkt, responsePkt);
@@ -100,74 +133,75 @@ void loop() {
 }
 
 void benchmark() {
+  client.publish("esp32/mqtt", "benchmarking");
   BenchmarkResult result;
+  bool skip_slave = false;
 
   for (uint8_t n = 0; n < ALL_NODE_COUNT; ++n) {
-        SlaveNode* node = ALL_NODES[n];
+    SlaveNode* node = ALL_NODES[n];
 
-        Serial.print("━━━ Node: "); Serial.print(node->name());
-        Serial.println(" ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    Serial.print("━━━ Node: "); Serial.print(node->name());
+    Serial.println(" ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-        for (uint8_t a = 0; a < ALGO_COUNT; ++a) {
-            IAlgorithm* algo = AlgorithmFactory(ALGO_PREFERENCE[a]);
-            if (!algo) {
-                Serial.print("  [SKIP] Algorithm 0x");
-                Serial.print(ALGO_PREFERENCE[a], HEX);
-                Serial.println(" not implemented on master.");
-                continue;
-            }
+    for (uint8_t a = 0; a < ALGO_COUNT; ++a) {
+      if (skip_slave) {
+        skip_slave = false;
+        break;
+      }
+      IAlgorithm* algo = AlgorithmFactory(ALGO_PREFERENCE[a]);
+      if (!algo) {
+          Serial.print("  [SKIP] Algorithm 0x");
+          Serial.print(ALGO_PREFERENCE[a], HEX);
+          Serial.println(" not implemented on master.");
+          continue;
+      }
 
-            Serial.print("  ── Algorithm: "); Serial.println(algo->name());
+      Serial.print("  ── Algorithm: "); Serial.println(algo->name());
 
-            // Track whether this algorithm is supported by this node at all.
-            // Set to false on first NACK; remaining sizes are skipped.
-            bool algoSupported = true;
+      for (uint8_t d = 0; d < BENCH_DATA_SIZE_COUNT; ++d) {
+        uint16_t dataSize = BENCH_DATA_SIZES[d];
 
-            for (uint8_t d = 0; d < BENCH_DATA_SIZE_COUNT; ++d) {
-                uint16_t dataSize = BENCH_DATA_SIZES[d];
+        Serial.print("     Running ");
+        Serial.print(dataSize);
+        Serial.print(" B ... ");
 
-                if (!algoSupported) {
-                    Serial.print("     [SKIP] ");
-                    Serial.print(dataSize);
-                    Serial.println(" B — algorithm not supported by this node.");
-                    continue;
-                }
+        BenchmarkStatus bs = node->runBenchmark(algo, dataSize, result);
+        Serial.println("bench status: " + String(bs));
 
-                Serial.print("     Running ");
-                Serial.print(dataSize);
-                Serial.print(" B ... ");
-
-                UartStatus us = node->runBenchmark(algo, dataSize, result);
-
-                if (us == UART_ERR_NACK) {
-                    // Slave rejected the algorithm — skip all remaining sizes
-                    algoSupported = false;
-                    Serial.println("NACK (algorithm not supported).");
-                    continue;
-                }
-
-                if (us != UART_OK) {
-                    // Comms or parameter error on this size; log and continue
-                    Serial.print("FAILED (");
-                    Serial.print(String(us));
-                    Serial.println(").");
-                    printResult(result);
-                    publishResult(result);
-                    continue;
-                }
-
-                Serial.println("OK.");
-                printResult(result);
-                publishResult(result);
-
-                // Small inter-run delay to let the slave reset its state
-                delay(50);
-            }
-
-            Serial.println();
+        if (bs == BENCH_HI_NACK) {
+          // Slave rejected the algorithm — skip all remaining sizes
+          Serial.println("NACK (algorithm not supported).");
+          break; // skip algorithm
         }
 
-        Serial.println();
+        if (bs == BENCH_HI_TIMEOUT) {
+          Serial.println("Timeout (cannot connect to slave).");
+          skip_slave = true;
+          break;
+        }
+
+        if (bs != BENCH_OK) {
+          // Comms or parameter error on this size; log and continue
+          Serial.print("FAILED (");
+          Serial.print(String(bs));
+          Serial.println(").");
+          printResult(result);
+          publishResult(result);
+          continue;
+        }
+
+        Serial.println("OK.");
+        printResult(result);
+        publishResult(result);
+
+        // Small inter-run delay to let the slave reset its state
+        delay(50);
+      }
+
+      Serial.println();
+    }
+
+    Serial.println();
     }
 }
 
@@ -187,13 +221,14 @@ void setup_wifi() {
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("ESP32Client")) {  // Уникален Client ID
+    if (client.connect("ESP32Client", MQTT_USER, MQTT_PASS)) {  // Уникален Client ID
       Serial.println("connected");
       client.subscribe("esp32/output");   // subscription
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5s");
+      Serial.printf("WolfSSLClient err = %d\n", tls.lastError());
       delay(5000);
     }
   }
@@ -237,26 +272,30 @@ static String sanitizeTopicToken(const char* token)
 
 void publishResult(const BenchmarkResult& r)
 {
-    reconnect();
+  client.publish("esp32/mqtt", "publishing1");
+  reconnect();
+  client.publish("esp32/mqtt", "publishing2");
 
-    String topic = String("crypto_bench/") + sanitizeTopicToken(r.slaveName) + "/" +
-                   sanitizeTopicToken(r.algorithmName) + "/" +
-                   String(r.dataSize) + "/result";
+  String topic = String("crypto_bench/") + sanitizeTopicToken(r.slaveName) + "/" +
+                  sanitizeTopicToken(r.algorithmName) + "/" +
+                  String(r.dataSize) + "/result";
 
-    String payload = "{";
-    payload += "\"slaveName\":\"" + String(r.slaveName) + "\",";
-    payload += "\"algorithmName\":\"" + String(r.algorithmName) + "\",";
-    payload += "\"dataSize\":" + String(r.dataSize) + ",";
-    payload += "\"decryptOk\":" + String(r.decryptOk ? "true" : "false") + ",";
-    payload += "\"slaveTimeMs\":" + String(r.slaveTimeMs) + ",";
-    payload += "\"idlePowerMW\":" + String(r.idlePowerMW, 2) + ",";
-    payload += "\"avgPowerMW\":" + String(r.avgPowerMW, 2) + ",";
-    payload += "\"peakPowerMW\":" + String(r.peakPowerMW, 2) + ",";
-    payload += "\"deltaPowerMW\":" + String(r.deltaPowerMW, 2) + ",";
-    payload += "\"energyMJ\":" + String(r.energyMJ, 4) + ",";
-    payload += "\"uartStatus\":" + String((int)r.uartStatus) + ",";
-    payload += "\"algoStatus\":" + String((int)r.algoStatus);
-    payload += "}";
+  String payload = "{";
+  payload += "\"slaveName\":\"" + String(r.slaveName) + "\",";
+  payload += "\"algorithmName\":\"" + String(r.algorithmName) + "\",";
+  payload += "\"dataSize\":" + String(r.dataSize) + ",";
+  payload += "\"decryptOk\":" + String(r.decryptOk ? "true" : "false") + ",";
+  payload += "\"slaveTimeMs\":" + String(r.slaveTimeMs) + ",";
+  payload += "\"idlePowerMW\":" + String(r.idlePowerMW, 2) + ",";
+  payload += "\"avgPowerMW\":" + String(r.avgPowerMW, 2) + ",";
+  payload += "\"peakPowerMW\":" + String(r.peakPowerMW, 2) + ",";
+  payload += "\"deltaPowerMW\":" + String(r.deltaPowerMW, 2) + ",";
+  payload += "\"energyMJ\":" + String(r.energyMJ, 4) + ",";
+  payload += "\"uartStatus\":" + String((int)r.uartStatus) + ",";
+  payload += "\"algoStatus\":" + String((int)r.algoStatus);
+  payload += "}";
 
-    client.publish(topic.c_str(), payload.c_str());
+  client.publish("esp32/mqtt", "publishing3");
+  client.publish(topic.c_str(), payload.c_str());
+  client.publish("esp32/mqtt", "publishing4");
 }

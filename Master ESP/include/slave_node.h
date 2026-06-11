@@ -7,6 +7,18 @@
 #include "algorithm_interface.h"
 #include "ina219_sensor.h"
 
+enum BenchmarkStatus : int8_t {
+    BENCH_OK = 0,
+    BENCH_HI_NACK = -10,
+    BENCH_HI_TIMEOUT = -11,
+    BENCH_HI_ERR = -12,
+    BENCH_REQUEST_NACK = -20,
+    BENCH_REQUEST_TIMEOUT = -21,
+    BENCH_REQUEST_ERR = -22,
+    BENCH_RESPONSE_TIMEOUT = -30,
+    BENCH_DECRYPT_ERR = -40,
+};
+
 static const uint16_t BENCH_DATA_SIZES[] = {
     64,
     256,
@@ -57,8 +69,6 @@ public:
     uint8_t     rxPin()    const { return _rxPin; }
     uint8_t     txPin()    const { return _txPin; }
 
-    bool beginSensor();
-
     void activateUart();
 
     void deactivateUart();
@@ -77,7 +87,7 @@ public:
      *   9. deactivateUart()
      *  10. Populate and return BenchmarkResult
      */
-    UartStatus runBenchmark(IAlgorithm*       algo,
+    BenchmarkStatus runBenchmark(IAlgorithm*       algo,
                             uint16_t          dataSize,
                             BenchmarkResult&  result);
 

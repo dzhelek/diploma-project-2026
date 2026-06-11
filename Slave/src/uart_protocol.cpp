@@ -193,6 +193,7 @@ UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
     fullCrc = computeCRC8(header, sizeof(header));
     fullCrc = continueCRC8(fullCrc, pkt.data, pkt.dataSize);
 
+    UartStatus status;
     for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
         while (_serial.available()) _serial.read();
 
@@ -201,7 +202,7 @@ UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
         if (pkt.dataSize > 0) _serial.write(pkt.data, pkt.dataSize);
         _serial.write(&fullCrc, 1);
 
-        UartStatus status = receiveAck();
+        status = receiveAck();
 
         if (status == UART_OK)
             return UART_OK;
@@ -210,5 +211,5 @@ UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
         // UART_ERR_TIMEOUT means no reply at all; also resend
     }
 
-    return UART_ERR_TIMEOUT;
+    return status;
 }
