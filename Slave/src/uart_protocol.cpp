@@ -124,6 +124,8 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
 {
     // Packet: [J][algo][dataHi][dataLo][keyLength][nonceLength][data...][key...][nonce...][CRC-8]
 
+    pkt.data = nullptr; // so the caller can safely delete[] it even on early return
+
     for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
 
         uint8_t startByte;
@@ -143,19 +145,26 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
         pkt.keySize  = hdr[3];
         pkt.nonceSize = hdr[4];
 
-        if (pkt.keySize > UART_MAX_KEY_SIZE || pkt.nonceSize > UART_MAX_NONCE_SIZE) {
+        if (pkt.keySize > UART_MAX_KEY_SIZE ||
+            pkt.nonceSize > UART_MAX_NONCE_SIZE ||
+            pkt.dataSize > UART_MAX_DATA_SIZE) {
             while (_serial.available()) _serial.read();
             sendAck(false);
             return UART_ERR_OVERFLOW;
         }
 
         pkt.data = new uint8_t[pkt.dataSize];
-        if (pkt.dataSize > 0 && !readExact(pkt.data, pkt.dataSize)) continue;
-        if (pkt.keySize  > 0 && !readExact(pkt.key,  pkt.keySize))  continue;
-        if (pkt.nonceSize > 0 && !readExact(pkt.nonce, pkt.nonceSize)) continue;
+        if (!pkt.data) {
+            while (_serial.available()) _serial.read();
+            sendAck(false);
+            return UART_ERR_OVERFLOW;
+        }
+        if (pkt.dataSize  > 0 && !readExact(pkt.data, pkt.dataSize))  { delete[] pkt.data; pkt.data = nullptr; continue; }
+        if (pkt.keySize   > 0 && !readExact(pkt.key,  pkt.keySize))   { delete[] pkt.data; pkt.data = nullptr; continue; }
+        if (pkt.nonceSize > 0 && !readExact(pkt.nonce, pkt.nonceSize)){ delete[] pkt.data; pkt.data = nullptr; continue; }
 
         uint8_t receivedCrc;
-        if (!readExact(&receivedCrc, 1)) continue;
+        if (!readExact(&receivedCrc, 1)) { delete[] pkt.data; pkt.data = nullptr; continue; }
 
         uint8_t calcCrc;
         calcCrc = computeCRC8(&startByte, 1);
@@ -169,6 +178,8 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
             sendAck(false); // NACK: CRC mismatch
             // Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.keySize) + " bytes key, " + String(pkt.nonceSize) + " bytes nonce");
             // Serial.println("Data (hex): " + String((char*)pkt.data, pkt.dataSize));
+            delete[] pkt.data;
+            pkt.data = nullptr;
             continue;
         }
 
@@ -181,13 +192,15 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
 
 UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
 {
-    // Build header: [J][timeHi][timeLo][dataSizeHi][dataSizeLo]
-    uint8_t header[5];
+    // Build header: [J][timeB3][timeB2][timeB1][timeB0][dataSizeHi][dataSizeLo]
+    uint8_t header[7];
     header[0] = UART_START_BYTE;
-    header[1] = pkt.timeMs >> 8;
-    header[2] = pkt.timeMs & 0xFF;
-    header[3] = pkt.dataSize >> 8;
-    header[4] = pkt.dataSize & 0xFF;
+    header[1] = (pkt.timeUs >> 24) & 0xFF;
+    header[2] = (pkt.timeUs >> 16) & 0xFF;
+    header[3] = (pkt.timeUs >> 8)  & 0xFF;
+    header[4] =  pkt.timeUs        & 0xFF;
+    header[5] = pkt.dataSize >> 8;
+    header[6] = pkt.dataSize & 0xFF;
 
     uint8_t fullCrc;
     fullCrc = computeCRC8(header, sizeof(header));
@@ -207,8 +220,16 @@ UartStatus UartProtocol::slaveSendResponse(const ResponsePacket& pkt)
         if (status == UART_OK)
             return UART_OK;
 
-        // NACK means master detected a CRC error; resend
-        // UART_ERR_TIMEOUT means no reply at all; also resend
+        // Only resend on an explicit NACK: the master read the response, found a
+        // CRC error, and is waiting for a retransmit.
+        //
+        // On any other status (BAD_START / CRC on the ACK itself / TIMEOUT) the ACK
+        // handshake glitched. The master has most likely already accepted the
+        // response and moved on, so resending is futile and — worse — keeps us from
+        // listening for the next Hi, which desyncs the whole sweep. Bail out fast so
+        // we resync on the master's next request instead.
+        if (status != UART_ERR_NACK)
+            return status;
     }
 
     return status;

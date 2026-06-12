@@ -10,12 +10,16 @@ INA219Sensor::INA219Sensor(uint8_t i2cAddress)
     , _peakPowerMW(0.0f)
     , _sampleCount(0)
     , _lastSampleMs(0)
+    , _sensor(nullptr)
 {}
 
 bool INA219Sensor::begin()
 {
-    _sensor = new Adafruit_INA219(_address);
-    if (!_sensor) return false;
+    // Allocate the driver once and reuse it across measurement windows.
+    if (!_sensor) {
+        _sensor = new Adafruit_INA219(_address);
+        if (!_sensor) return false;
+    }
 
     // begin() returns true if the sensor responds on the bus
     if (!_sensor->begin()) return false;
@@ -36,19 +40,27 @@ void INA219Sensor::update()
     _accumPowerMW += powerMW;
     if (powerMW > _peakPowerMW) _peakPowerMW = powerMW;
     ++_sampleCount;
+    _lastSampleMs = millis();   // window ends at the last sample, not at stop time
 }
 
 void INA219Sensor::startMeasurement()
 {
-    _idlePowerMW = readPower();
+    // Reset window accumulators so each measurement is independent of the last.
+    _idlePowerMW   = readPower();
+    _accumPowerMW  = 0.0f;
+    _peakPowerMW   = 0.0f;
+    _sampleCount   = 0;
     _windowStartMs = millis();
+    _lastSampleMs  = _windowStartMs;
 }
 
 INAWindow INA219Sensor::stopMeasurement()
 {
     INAWindow w;
-    _lastSampleMs = millis();
+    // durationMs spans only the sampling window (start -> last sample), so it
+    // matches the samples that fed avgPowerMW; the response-transfer tail is excluded.
     w.durationMs = _lastSampleMs - _windowStartMs;
+    if (w.durationMs == 0) w.durationMs = 1;   // avoid a degenerate 0 ms window (energy would read 0)
     w.avgPowerMW   = (_sampleCount > 0)
                      ? (_accumPowerMW / _sampleCount)
                      : 0.0f;

@@ -39,7 +39,7 @@ struct BenchmarkResult {
     uint16_t      dataSize;        // Plaintext size used (bytes)
     bool          decryptOk;       // true if decrypt + plaintext match passed
 
-    uint32_t      slaveTimeMs;     // Processing time reported by slave (ms)
+    uint32_t      slaveTimeUs;     // Processing time reported by slave (microseconds)
 
     float         idlePowerMW;     // Baseline power before request (mW)
     float         avgPowerMW;      // Average power during slave processing (mW)
@@ -63,6 +63,7 @@ public:
         , _txPin(txPin)
         , _sensor(inaAddress)
         , _uart(Serial2)
+        , _plaintextBuf(nullptr)
     {}
 
     const char* name()     const { return _name; }

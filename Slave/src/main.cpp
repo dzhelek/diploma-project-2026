@@ -15,9 +15,9 @@ ResponsePacket responsePkt;
 void setup() {
 #ifdef SLAVE_ESP32
    Serial.begin(115200);
-   Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
+   Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE); // before begin(): hold large payloads
+   Serial2.begin(UART_BAUD, SERIAL_8N1, 16, 17); // RX, TX
    while(!Serial);
-   while(!Serial2);
 #endif
 #ifdef SLAVE_ESP_12
    Serial.begin(9600);
@@ -40,11 +40,24 @@ void loop() {
   while(!wait_for_master(requestPkt)) delay(100);
 
   algo = AlgorithmFactory(requestPkt.algorithm);
+  if (!algo) {
+    Serial.println("Unsupported algorithm in request, ignoring");
+    delete[] requestPkt.data;
+    requestPkt.data = nullptr;
+    return; // restart loop()
+  }
 
-  startMs = millis();
+  startMs = micros();
 
-  size_t responsePktDataSize = requestPkt.dataSize + algo->tagSize();
-  responsePkt.data = new uint8_t[responsePktDataSize]; // Allocate buffer for ciphertext + tag
+  size_t allocSize = requestPkt.dataSize + algo->tagSize();
+  size_t responsePktDataSize = allocSize;
+  responsePkt.data = new uint8_t[allocSize]; // Allocate buffer for ciphertext + tag
+  if (!responsePkt.data) {
+    Serial.println("Out of memory allocating response buffer");
+    delete[] requestPkt.data;
+    requestPkt.data = nullptr;
+    return; // restart loop()
+  }
   status_algo = algo->encrypt(
       requestPkt.data, requestPkt.dataSize,
       requestPkt.key,  requestPkt.keySize,
@@ -53,10 +66,18 @@ void loop() {
       responsePkt.data, &responsePktDataSize
   );
 
-  elapsed = millis() - startMs;
+  elapsed = micros() - startMs;   // unsigned: correct even across a micros() wrap (~71 min)
+
+  if (status_algo != ALGO_OK) {
+    Serial.println("Encrypt failed, status: " + String(status_algo));
+  }
+
+  // Never transmit more than we allocated, even if encrypt misreported its output
+  // length — slaveSendResponse reads dataSize bytes from responsePkt.data.
+  if (responsePktDataSize > allocSize) responsePktDataSize = allocSize;
 
   responsePkt.dataSize = responsePktDataSize;
-  responsePkt.timeMs = elapsed > 0xFFFF ? 0xFFFF : (uint16_t)elapsed;
+  responsePkt.timeUs = elapsed;
 
   respond_to_master(responsePkt);
 

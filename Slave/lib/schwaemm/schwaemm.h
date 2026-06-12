@@ -36,7 +36,7 @@ typedef unsigned long long int ULLInt;
 // are 256128, 128128, 192192, and 256256.
 
 #ifndef SCHWAEMM_INST
-#define SCHWAEMM_INST 256128
+#define SCHWAEMM_INST 192192   // match algo_schwaemm.h (key/nonce/tag = 24); overridable via -D build flag
 #endif
 
 // The identifier SPARKLE_ASSEMBLER determines whether the low-level functions 

@@ -147,8 +147,10 @@ UartStatus UartProtocol::masterSendRequest(const RequestPacket& pkt)
 
 UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
 {
-    // Fixed header after start byte: [timeHi][timeLo][dataSizeHi][dataSizeLo]
-    // Total fixed portion transmitted: [J] + 4 bytes + n bytes data + [CRC]
+    // Fixed header after start byte: [timeB3][timeB2][timeB1][timeB0][dataSizeHi][dataSizeLo]
+    // Total fixed portion transmitted: [J] + 6 bytes + n bytes data + [CRC]
+
+    pkt.data = nullptr; // so the caller can safely delete[] it even on timeout
 
     for (int attempt = 0; attempt < UART_MAX_RETRIES; ++attempt) {
 
@@ -160,20 +162,39 @@ UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
             continue;
         }
 
-        uint8_t hdr[4];
+        uint8_t hdr[6];
         if (!readExact(hdr, sizeof(hdr))) continue;
 
-        pkt.timeMs   = ((uint16_t)hdr[0] << 8) | hdr[1];
-        pkt.dataSize = ((uint16_t)hdr[2] << 8) | hdr[3];
+        pkt.timeUs   = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) |
+                       ((uint32_t)hdr[2] << 8)  |  (uint32_t)hdr[3];
+        pkt.dataSize = ((uint16_t)hdr[4] << 8)  |  hdr[5];
+
+        if (pkt.dataSize > UART_MAX_DATA_SIZE) {
+            // Corrupt/oversized length — flush and retry rather than allocating it.
+            while (_serial.available()) _serial.read();
+            continue;
+        }
 
         pkt.data = new uint8_t[pkt.dataSize];
+        if (!pkt.data) {
+            while (_serial.available()) _serial.read();
+            continue;
+        }
 
-        if (pkt.dataSize > 0 && !readExact(pkt.data, pkt.dataSize)) continue;
+        if (pkt.dataSize > 0 && !readExact(pkt.data, pkt.dataSize)) {
+            delete[] pkt.data;
+            pkt.data = nullptr;
+            continue;
+        }
 
-        Serial.println("Receiving Response: dataSize=" + String(pkt.dataSize) + ", timems=" + String(pkt.timeMs));
+        Serial.println("Receiving Response: dataSize=" + String(pkt.dataSize) + ", timeus=" + String(pkt.timeUs));
 
         uint8_t receivedCrc;
-        if (!readExact(&receivedCrc, 1)) continue;
+        if (!readExact(&receivedCrc, 1)) {
+            delete[] pkt.data;
+            pkt.data = nullptr;
+            continue;
+        }
 
         uint8_t calcCrc = 0x00;
         calcCrc = computeCRC8(&startByte, 1);
@@ -183,8 +204,10 @@ UartStatus UartProtocol::masterReceiveResponse(ResponsePacket& pkt)
         if (calcCrc != receivedCrc) {
             Serial.println("CRC calculated: " + String(calcCrc, HEX) + ", CRC received: " + String(receivedCrc, HEX));
             sendAck(false); // NACK: CRC mismatch
-            Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.timeMs) + " time ms, ");
+            Serial.println(String(pkt.dataSize) + " bytes data, " + String(pkt.timeUs) + " time us, ");
             Serial.println("Data (hex): " + String((char*)pkt.data, pkt.dataSize));
+            delete[] pkt.data;
+            pkt.data = nullptr;
             continue;       // retry
         }
 

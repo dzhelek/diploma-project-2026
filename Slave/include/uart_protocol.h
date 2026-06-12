@@ -8,6 +8,11 @@
 #define UART_MAX_RETRIES      3
 #define UART_MAX_KEY_SIZE     (24)
 #define UART_MAX_NONCE_SIZE   (24)
+#define UART_MAX_DATA_SIZE    (32768)   // reject corrupt/oversized length fields before allocating
+#define UART_BAUD             (115200)  // link speed; 9600 made a 16 KB transfer take ~17 s (> timeout)
+#define UART_RX_BUFFER_SIZE   (17408)   // >= largest frame (~16.4 KB) so a scheduling stall can't drop RX bytes
+// NOTE: non-ESP32 slaves (ESP-12 / Pico / Nano) must also use UART_BAUD on their link UART,
+//       and their monitor_speed updated to match, before they can talk to the master.
 
 enum UartAlgorithm : uint8_t {
     ALGO_ASCON      = 0xA1,
@@ -66,10 +71,10 @@ struct RequestPacket {
 
 /**
  * Response packet  –  slave --> master
- *   [J][time_hi][time_lo][data_size_hi][data_size_lo][data_size bytes of data][CRC-8]
+ *   [J][time_b3][time_b2][time_b1][time_b0][data_size_hi][data_size_lo][data_size bytes of data][CRC-8]
  */
 struct ResponsePacket {
-    uint16_t timeMs;
+    uint32_t timeUs;
     uint16_t dataSize;
     uint8_t* data;
 };

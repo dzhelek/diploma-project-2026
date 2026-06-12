@@ -20,15 +20,24 @@ void SlaveNode::prepareBuffers(IAlgorithm* algo, size_t dataSize)
     int nonceSize = algo->nonceSize();
     for (int i = 0; i < keySize; ++i) { _keyBuf[i] = random(256); }
     for (int i = 0; i < nonceSize; ++i) { _nonceBuf[i] = random(256); }
-    for (int i = 0; i < dataSize; ++i) { _plaintextBuf[i] = random(256); }
+    for (size_t i = 0; i < dataSize; ++i) { _plaintextBuf[i] = random(256); }
 }
 
 void SlaveNode::activateUart()
 {
-    // Remap Serial2 to this node's GPIO pins then (re)start it
-    // Serial2.end();
-    Serial2.begin(9600, SERIAL_8N1, _rxPin, _txPin);
-    while(!Serial2);
+    // (Re)map Serial2 to this node's GPIO pins and start the link. Call this ONCE
+    // per node (not per run): re-initialising mid-conversation glitches the line and
+    // can corrupt the final ACK / next Hi, desyncing the two state machines.
+    //
+    // end() first so setRxBufferSize() takes effect (it is ignored once the driver is
+    // installed). This end() is at a node boundary, not mid-exchange, so it is safe.
+    // A larger RX buffer + faster baud keep large payloads from overflowing the buffer
+    // (WiFi/MQTT can preempt the read loop) or exceeding the per-read timeout.
+    Serial2.end();
+    Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE);
+    Serial2.begin(UART_BAUD, SERIAL_8N1, _rxPin, _txPin);
+    delay(50);                                    // let the UART settle after (re)config
+    while (Serial2.available()) Serial2.read();   // discard any line-glitch bytes from begin()
 }
 
 void SlaveNode::deactivateUart()
@@ -49,7 +58,7 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     result.algorithmName  = algo->name();
     result.dataSize       = dataSize;
     result.decryptOk      = false;
-    result.slaveTimeMs    = 0;
+    result.slaveTimeUs    = 0;
     result.idlePowerMW    = 0.0f;
     result.avgPowerMW     = 0.0f;
     result.peakPowerMW    = 0.0f;
@@ -58,7 +67,8 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     result.uartStatus     = UART_OK;
     result.algoStatus     = ALGO_OK;
 
-    activateUart();
+    // The UART link is opened once per node by the caller (activateUart) and kept
+    // up across every run, so it is intentionally NOT (re)started here.
 
     // ── Step 1: Hi handshake ──────────────────────────────────────────────
     HiPacket hiPkt;
@@ -69,7 +79,6 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     result.uartStatus = us;
 
     if (us != UART_OK) {
-        deactivateUart();
         switch(us) {
             case UART_ERR_NACK:
                 return BENCH_HI_NACK;
@@ -82,6 +91,10 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     Serial.println("OK!");
 
     _plaintextBuf = new uint8_t[dataSize];
+    if (!_plaintextBuf) {
+        result.uartStatus = UART_ERR_OVERFLOW;
+        return BENCH_REQUEST_ERR;
+    }
     prepareBuffers(algo, dataSize);
 
     RequestPacket reqPkt;
@@ -98,7 +111,8 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     result.uartStatus = us;
 
     if (us != UART_OK) {
-        deactivateUart();
+        delete[] _plaintextBuf;
+        _plaintextBuf = nullptr;
          switch(us) {
             case UART_ERR_NACK:
                 return BENCH_REQUEST_NACK;
@@ -110,28 +124,37 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     }
     Serial.println("OK!");
 
-    if (_sensor.begin()) {
+    bool sensorOk = _sensor.begin();
+    if (sensorOk) {
         _sensor.startMeasurement();
+        // Sample until the slave starts replying, but bound the wait so a crashed
+        // slave can't hang the master here (masterReceiveResponse has its own timeout).
+        uint32_t sampleDeadline = millis() + (uint32_t)UART_TIMEOUT_MS * UART_MAX_RETRIES;
         do {
             _sensor.update();
-        } while(!Serial2.available());
+        } while (!Serial2.available() && millis() < sampleDeadline);
     }
 
     Serial.print("Receiving Response...");
-    ResponsePacket respPkt;
+    ResponsePacket respPkt = {};   // zero-init so timeMs/dataSize aren't read uninitialised on timeout
     us = _uart.masterReceiveResponse(respPkt);
     result.uartStatus = us;
 
-    INAWindow window = _sensor.stopMeasurement();
-    result.slaveTimeMs  = respPkt.timeMs;
-    result.avgPowerMW   = window.avgPowerMW;
-    result.peakPowerMW  = window.peakPowerMW;
-    result.deltaPowerMW = window.deltaPowerMW;
-    result.energyMJ     = window.energyMJ;
-    result.idlePowerMW  = window.idlePowerMW;
+    result.slaveTimeUs = respPkt.timeUs;
+    if (sensorOk) {
+        // Only trust the window if the sensor was actually sampling this run.
+        INAWindow window = _sensor.stopMeasurement();
+        result.avgPowerMW   = window.avgPowerMW;
+        result.peakPowerMW  = window.peakPowerMW;
+        result.deltaPowerMW = window.deltaPowerMW;
+        result.energyMJ     = window.energyMJ;
+        result.idlePowerMW  = window.idlePowerMW;
+    }
 
     if (us != UART_OK) {
-        deactivateUart();
+        delete[] _plaintextBuf;
+        _plaintextBuf = nullptr;
+        delete[] respPkt.data;   // nullptr after a timeout; delete[] nullptr is safe
         return BENCH_RESPONSE_TIMEOUT;
     }
     Serial.println("OK!");
@@ -148,7 +171,9 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     if (respPkt.dataSize != (uint16_t)expectedTotal) {
         // Unexpected payload length — treat as protocol error
         result.uartStatus = UART_ERR_UNKNOWN;
-        deactivateUart();
+        delete[] _plaintextBuf;
+        _plaintextBuf = nullptr;
+        delete[] respPkt.data;
         return BENCH_DECRYPT_ERR;
     }
 
@@ -156,6 +181,13 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
     // const uint8_t* tag        = respPkt.data + dataSize;
 
     uint8_t* decOutputBuf = new uint8_t[dataSize];
+    if (!decOutputBuf) {
+        delete[] _plaintextBuf;
+        _plaintextBuf = nullptr;
+        delete[] respPkt.data;
+        result.algoStatus = ALGO_ERR_OVERFLOW;
+        return BENCH_DECRYPT_ERR;
+    }
     size_t decOutputLen = 0;
     AlgoStatus as = algo->decrypt(
         respPkt.data,  respPkt.dataSize,
@@ -174,7 +206,6 @@ BenchmarkStatus SlaveNode::runBenchmark(IAlgorithm*      algo,
         Serial.println("OK!");
     }
 
-    deactivateUart();
     delete[] _plaintextBuf;
     delete[] decOutputBuf;
     delete[] respPkt.data;

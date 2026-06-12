@@ -50,7 +50,7 @@ const uint8_t ALGO_COUNT =
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, 16, 17); // RX, TX
+  Serial2.begin(UART_BAUD, SERIAL_8N1, 16, 17); // RX, TX (reconfigured per node in activateUart)
   Wire.begin();
 
   wolfSSL_Init();
@@ -64,6 +64,9 @@ void setup() {
   tls.setCipherList("TLS13-ASCONAEAD128-ASCONHASH256");
   // tls.setServerName(MQTT_SERVER);
   client.setServer(MQTT_SERVER, MQTT_PORT);
+  client.setKeepAlive(60);      // default 15 s is too short while a long benchmark run blocks client.loop()
+  client.setSocketTimeout(30);  // default 15 s — give the wolfSSL (ASCON) TLS handshake + CONNACK more room
+  client.setBufferSize(512);    // default 256 B silently drops the ~290 B crypto_bench result payload
   client.setCallback([](char* topic, byte* payload, unsigned int length) {
     Serial.print("Message arrived [");
     Serial.print(topic);
@@ -113,7 +116,7 @@ void setup() {
     client.publish("esp32/uart", String(requestPkt.data, requestPkt.dataSize).c_str());
   } else {
     client.publish("esp32/uart", "Decryption succeeded and content is correct");
-    client.publish("esp32/uart", String(responsePkt.timeMs).c_str());
+    client.publish("esp32/uart", String(responsePkt.timeUs).c_str());
   }
 
   delete[] resultBuffer; // Clean up dynamically allocated memory
@@ -142,6 +145,9 @@ void benchmark() {
 
     Serial.print("━━━ Node: "); Serial.print(node->name());
     Serial.println(" ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // Open the UART link once for this node and keep it up across all of its runs.
+    node->activateUart();
 
     for (uint8_t a = 0; a < ALGO_COUNT; ++a) {
       if (skip_slave) {
@@ -201,6 +207,9 @@ void benchmark() {
       Serial.println();
     }
 
+    // Done with this node — close its link before moving to the next node's pins.
+    node->deactivateUart();
+
     Serial.println();
     }
 }
@@ -248,7 +257,7 @@ void printResult(const BenchmarkResult& r)
     Serial.print  ("│ Decrypt OK : "); Serial.println(r.decryptOk ? "YES" : "NO");
 
     if (r.uartStatus == UART_OK) {
-        Serial.print("│ Slave time : "); Serial.print(r.slaveTimeMs);  Serial.println(" ms");
+        Serial.print("│ Slave time : "); Serial.print(r.slaveTimeUs);  Serial.println(" us");
         Serial.println("│ ── Power ──────────────────────────────");
         Serial.print("│ Idle power : "); Serial.print(r.idlePowerMW,  2); Serial.println(" mW");
         Serial.print("│ Avg  power : "); Serial.print(r.avgPowerMW,   2); Serial.println(" mW");
@@ -285,7 +294,7 @@ void publishResult(const BenchmarkResult& r)
   payload += "\"algorithmName\":\"" + String(r.algorithmName) + "\",";
   payload += "\"dataSize\":" + String(r.dataSize) + ",";
   payload += "\"decryptOk\":" + String(r.decryptOk ? "true" : "false") + ",";
-  payload += "\"slaveTimeMs\":" + String(r.slaveTimeMs) + ",";
+  payload += "\"slaveTimeUs\":" + String(r.slaveTimeUs) + ",";
   payload += "\"idlePowerMW\":" + String(r.idlePowerMW, 2) + ",";
   payload += "\"avgPowerMW\":" + String(r.avgPowerMW, 2) + ",";
   payload += "\"peakPowerMW\":" + String(r.peakPowerMW, 2) + ",";
