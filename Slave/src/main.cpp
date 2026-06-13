@@ -21,7 +21,7 @@ void setup() {
    while(!Serial);
 #endif
 #ifdef SLAVE_ESP_12
-   Serial.begin(9600);
+   Serial.begin(115200);
 #endif
 #ifdef SLAVE_RASPBERRY_PI_PICO
    Serial.begin(115200);   // USB CDC console for debug (separate from the Serial1 link)
