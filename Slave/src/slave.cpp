@@ -1,19 +1,9 @@
 #include "slave.h"
 
 #include "crypto_aead.h"
+#include "slave_debug.h"
 
-#ifdef SLAVE_ESP32
-UartProtocol uartProtocol(Serial2);
-#endif
-#ifdef SLAVE_ESP_12
-UartProtocol uartProtocol(Serial);
-#endif
-#ifdef SLAVE_RASPBERRY_PI_PICO
-UartProtocol uartProtocol(Serial1);
-#endif
-#ifdef SLAVE_ARDUINO_NANO
-UartProtocol uartProtocol(Serial);
-#endif
+UartProtocol uartProtocol(LINK_SERIAL);  // LINK_SERIAL is defined per-board in slave.h
 UartStatus status;
 HiPacket hiPkt;
 
@@ -27,25 +17,25 @@ const uint8_t SUPPORTED_ALGO_COUNT =
 
 bool wait_for_master(RequestPacket& pkt) {
 
-  Serial.println("Waiting for Hi");
+  SLAVE_DBGLN("Waiting for Hi");
   status = uartProtocol.slaveReceiveHi(hiPkt, SUPPORTED_ALGOS, SUPPORTED_ALGO_COUNT);
   if (status == UART_ERR_NACK) {
-    Serial.println("Master requested unsupported algorithm");
+    SLAVE_DBGLN("Master requested unsupported algorithm");
     return false;
   } else if (status != UART_OK) {
-    Serial.println("Failed to receive Hi from master, status: " + String(status));
+    SLAVE_DBGLN("Failed to receive Hi from master, status: " + String(status));
     return false;
   } else {
-    Serial.print("Received Hi from master, algorithm: ");
-    Serial.println(hiPkt.algorithm);
+    SLAVE_DBG("Received Hi from master, algorithm: ");
+    SLAVE_DBGLN(hiPkt.algorithm);
   }
 
   status = uartProtocol.slaveReceiveRequest(pkt);
   if (status != UART_OK) {
-    Serial.println("Failed to receive request from master, status:" + String(status));
+    SLAVE_DBGLN("Failed to receive request from master, status:" + String(status));
     return false;
   } else {
-    Serial.println("Received request from master");
+    SLAVE_DBGLN("Received request from master");
   }
   return true;
 }
@@ -53,10 +43,10 @@ bool wait_for_master(RequestPacket& pkt) {
 bool respond_to_master(ResponsePacket& pkt) {
   status = uartProtocol.slaveSendResponse(pkt);
   if (status != UART_OK) {
-    Serial.println("Failed to send response to master, status: " + String(status));
+    SLAVE_DBGLN("Failed to send response to master, status: " + String(status));
     return false;
   } else {
-    Serial.println("Sent response to master");
+    SLAVE_DBGLN("Sent response to master");
     return true;
   }
 }

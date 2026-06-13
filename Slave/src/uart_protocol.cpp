@@ -1,4 +1,5 @@
 #include "uart_protocol.h"
+#include "slave_debug.h"
 
 UartProtocol::UartProtocol(HardwareSerial& serial) : _serial(serial)
 {}
@@ -97,8 +98,8 @@ UartStatus UartProtocol::slaveReceiveHi(HiPacket& pkt, UartAlgorithm* supportedA
         }
 
         if (computeCRC8(buf, 2) != buf[2]) {
-            Serial.println("CRC mismatch detected");
-            Serial.println("CRC calculated: " + String(computeCRC8(buf, 2), HEX) + ", CRC received: " + String(buf[2], HEX));
+            SLAVE_DBGLN("CRC mismatch detected");
+            SLAVE_DBGLN("CRC calculated: " + String(computeCRC8(buf, 2), HEX) + ", CRC received: " + String(buf[2], HEX));
             sendAck(false); // NACK: bad CRC
             continue;
         }
@@ -138,7 +139,7 @@ UartStatus UartProtocol::slaveReceiveRequest(RequestPacket& pkt)
 
         uint8_t hdr[5]; // [algo][dataHi][dataLo][keyLength][nonceLength]
         if (!readExact(hdr, sizeof(hdr))) continue;
-        Serial.println("Received request header: algo=" + String(hdr[0], HEX) + ", dataSize=" + String((hdr[1] << 8) | hdr[2]) + ", keySize=" + String(hdr[3]) + ", nonceSize=" + String(hdr[4]));
+        SLAVE_DBGLN("Received request header: algo=" + String(hdr[0], HEX) + ", dataSize=" + String((hdr[1] << 8) | hdr[2]) + ", keySize=" + String(hdr[3]) + ", nonceSize=" + String(hdr[4]));
 
         pkt.algorithm = static_cast<UartAlgorithm>(hdr[0]);
         pkt.dataSize = ((uint16_t)hdr[1] << 8) | hdr[2];

@@ -3,7 +3,7 @@
 
 SlaveNode NODE_ESPRESSIF32  ("espressif32",   16,   17,  0x40);
 SlaveNode NODE_ESPRESSIF8266("espressif8266", 33,   32,  0x41);
-SlaveNode NODE_RASPBERRYPI  ("raspberrypi",   22,   23,  0x44);
+SlaveNode NODE_RASPBERRYPI  ("raspberrypi",   27,   26,  0x44);
 SlaveNode NODE_ATMELAVR     ("atmelavr",      19,   18,  0x45);
 
 SlaveNode* const ALL_NODES[] = {

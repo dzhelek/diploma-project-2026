@@ -2,6 +2,7 @@
 
 #include "slave.h"
 #include "algorithm_interface.h"
+#include "slave_debug.h"
 
 void setup_wifi();
 
@@ -23,25 +24,30 @@ void setup() {
    Serial.begin(9600);
 #endif
 #ifdef SLAVE_RASPBERRY_PI_PICO
-   Serial1.setTX(14);
-   Serial1.setRX(15);
-   Serial1.begin(9600);
+   Serial.begin(115200);   // USB CDC console for debug (separate from the Serial1 link)
+   while (!Serial && millis() < 3000) { }        // let the USB CDC port enumerate, but never hang on it
+   // UART0 TX/RX must be a hardware-valid pair: GP0/1, GP12/13, GP16/17, or GP28/29.
+   // GP14/GP15 are UART0 CTS/RTS (NOT TX/RX) — the core silently keeps the defaults, so nothing reaches them.
+   Serial1.setTX(12);
+   Serial1.setRX(13);
+   Serial1.setFIFOSize(UART_RX_BUFFER_SIZE);      // Philhower RX FIFO defaults to 32 B — too small; must precede begin()
+   Serial1.begin(UART_BAUD);
 #endif
 #ifdef SLAVE_ARDUINO_NANO
-   Serial.begin(9600);
+   Serial.begin(UART_BAUD);
 #endif
 
-  Serial.println("Setup complete");
+  SLAVE_DBGLN("Setup complete");
 }
 
 void loop() {
-   while(!Serial2.available());
+   while(!LINK_SERIAL.available());
 
   while(!wait_for_master(requestPkt)) delay(100);
 
   algo = AlgorithmFactory(requestPkt.algorithm);
   if (!algo) {
-    Serial.println("Unsupported algorithm in request, ignoring");
+    SLAVE_DBGLN("Unsupported algorithm in request, ignoring");
     delete[] requestPkt.data;
     requestPkt.data = nullptr;
     return; // restart loop()
@@ -53,7 +59,7 @@ void loop() {
   size_t responsePktDataSize = allocSize;
   responsePkt.data = new uint8_t[allocSize]; // Allocate buffer for ciphertext + tag
   if (!responsePkt.data) {
-    Serial.println("Out of memory allocating response buffer");
+    SLAVE_DBGLN("Out of memory allocating response buffer");
     delete[] requestPkt.data;
     requestPkt.data = nullptr;
     return; // restart loop()
@@ -69,7 +75,7 @@ void loop() {
   elapsed = micros() - startMs;   // unsigned: correct even across a micros() wrap (~71 min)
 
   if (status_algo != ALGO_OK) {
-    Serial.println("Encrypt failed, status: " + String(status_algo));
+    SLAVE_DBGLN("Encrypt failed, status: " + String(status_algo));
   }
 
   // Never transmit more than we allocated, even if encrypt misreported its output
