@@ -18,6 +18,7 @@ enum UartAlgorithm : uint8_t {
     ALGO_ASCON      = 0xA1,
     ALGO_TINYJAMBU  = 0xA2,
     ALGO_SCHWAEMM   = 0xA3,
+    ALGO_AESGCM     = 0xA4,
 };
 
 enum UartPacketType : uint8_t {

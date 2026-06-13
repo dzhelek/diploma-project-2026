@@ -2,11 +2,13 @@
 #include "algo_ascon.h"
 #include "algo_tinyjambu.h"
 #include "algo_schwaemm.h"
+#include "algo_aesgcm.h"
 
 // Singleton instances — one per algorithm, allocated in static storage.
 static AsconAlgorithm     s_ascon;
 static TinyJAMBUAlgorithm s_tinyjambu;
 static SCHWAEMMAlgorithm  s_schwaemm;
+static AESGCMAlgorithm    s_aesgcm;
 
 IAlgorithm* AlgorithmFactory(UartAlgorithm algo)
 {
@@ -14,6 +16,7 @@ IAlgorithm* AlgorithmFactory(UartAlgorithm algo)
         case ALGO_ASCON:      return &s_ascon;
         case ALGO_TINYJAMBU:  return &s_tinyjambu;
         case ALGO_SCHWAEMM:   return &s_schwaemm;
+        case ALGO_AESGCM:     return &s_aesgcm;
         default:              return nullptr;
     }
 }

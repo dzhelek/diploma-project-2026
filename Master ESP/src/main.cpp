@@ -44,6 +44,7 @@ const UartAlgorithm ALGO_PREFERENCE[] = {
     ALGO_ASCON,
     ALGO_TINYJAMBU,
     ALGO_SCHWAEMM,
+    ALGO_AESGCM,
 };
 const uint8_t ALGO_COUNT =
     sizeof(ALGO_PREFERENCE) / sizeof(ALGO_PREFERENCE[0]);
