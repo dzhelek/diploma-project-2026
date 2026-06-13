@@ -1,6 +1,15 @@
 #include "algo_schwaemm.h"
 
+// SCHWAEMM's AEAD API is renamed to avoid a link-time clash with ASCON (both use
+// the SUPERCOP names crypto_aead_encrypt/decrypt). Keep in sync with schwaemm.c.
+#define crypto_aead_encrypt  schwaemm_aead_encrypt
+#define crypto_aead_decrypt  schwaemm_aead_decrypt
+
+// schwaemm.c is compiled as C (C linkage); this wrapper is C++. Include the header
+// inside extern "C" so the call isn't name-mangled and matches the C definition.
+extern "C" {
 #include "schwaemm.h"
+}
 
 AlgoStatus SCHWAEMMAlgorithm::encrypt(
     const uint8_t* plaintext,   size_t plaintextSize,

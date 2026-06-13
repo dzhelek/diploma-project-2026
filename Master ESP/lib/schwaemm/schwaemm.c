@@ -21,6 +21,12 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
+// Resolve a link-time clash with the ASCON library, which exports the same
+// SUPERCOP API symbols (crypto_aead_encrypt/decrypt). Rename SCHWAEMM's so both
+// AEADs can coexist in one binary. Keep in sync with algo_schwaemm.cpp.
+#define crypto_aead_encrypt  schwaemm_aead_encrypt
+#define crypto_aead_decrypt  schwaemm_aead_decrypt
+
 #include <string.h>  // for memcpy, memset
 #include "schwaemm.h"
 #include "sparkle.h"
